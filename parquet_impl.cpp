@@ -194,9 +194,8 @@ struct ChunkInfo
 
 struct ParallelCoordinator
 {
-    std::mutex  lock;
-    int32       next_reader;
-    int32       next_rowgroup;
+    std::atomic<int32> next_reader;
+    std::atomic<int32> next_rowgroup;
 };
 
 
@@ -523,12 +522,7 @@ public:
          * threaded execution.
          */
         if (coord)
-        {
-            std::lock_guard<std::mutex> guard(coord->lock);
-            if (this->reader_id != (coord->next_reader - 1))
-                return false;
-            this->row_group = coord->next_rowgroup++;
-        }
+            this->row_group = coord->next_rowgroup.fetch_add(1, std::memory_order_relaxed);
         else
             this->row_group++;
 
@@ -1090,6 +1084,8 @@ public:
     virtual void rescan(void) = 0;
     virtual void add_file(const char *filename, List *rowgroups) = 0;
     virtual void set_coordinator(ParallelCoordinator *coord) = 0;
+
+    int stateId;
 };
 
 class SingleFileExecutionState : public ParquetFdwExecutionState
@@ -1139,12 +1135,12 @@ public:
     {
         ListCell           *lc;
         std::vector<int>    rg;
-        int                 reader_id = 0;
+        // int                 reader_id = 0;
 
         foreach (lc, rowgroups)
             rg.push_back(lfirst_int(lc));
 
-        reader = new ParquetFdwReader(reader_id);
+        reader = new ParquetFdwReader(MyProcPid);
         reader->open(filename, cxt, tupleDesc, attrs_used, use_threads, use_mmap);
         reader->set_rowgroups_list(rg);
     }
@@ -1184,10 +1180,7 @@ private:
         ParquetFdwReader *r;
 
         if (coord)
-        {
-            std::lock_guard<std::mutex> guard(coord->lock);
-            cur_reader = coord->next_reader++;
-        }
+            cur_reader = coord->next_reader.fetch_add(1, std::memory_order_relaxed);
 
         if (cur_reader >= files.size())
             return NULL;
@@ -2735,6 +2728,7 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
                 festate = new SingleFileExecutionState(reader_cxt, tupleDesc,
                                                        attrs_used, use_threads,
                                                        use_mmap);
+                festate->stateId = MyProcPid;
                 break;
             case RT_MULTI:
                 festate = new MultifileExecutionState(reader_cxt, tupleDesc,
@@ -3095,8 +3089,8 @@ parquetInitializeDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt,
     ParallelCoordinator        *coord = (ParallelCoordinator *) coordinate;
     ParquetFdwExecutionState   *festate;
 
-    coord->next_rowgroup = 0;
-    coord->next_reader = 0;
+    std::atomic_init(&coord->next_reader, 0);
+    std::atomic_init(&coord->next_rowgroup, 0);
     festate = (ParquetFdwExecutionState *) node->fdw_state;
     festate->set_coordinator(coord);
 }
@@ -3107,7 +3101,7 @@ parquetReInitializeDSMForeignScan(ForeignScanState *node,
 {
     ParallelCoordinator    *coord = (ParallelCoordinator *) coordinate;
 
-    coord->next_rowgroup = 0;
+    std::atomic_init(&coord->next_rowgroup, (int32)0);
 }
 
 extern "C" void

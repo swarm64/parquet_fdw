@@ -1,6 +1,12 @@
 
 #include "Misc.hpp"
 
+extern "C" {
+#include "postgres.h"
+#include "utils/memdebug.h"
+#include "utils/memutils.h"
+}
+
 /*
  * exc_palloc
  *      C++ specific memory allocator that utilizes postgres allocation sets.

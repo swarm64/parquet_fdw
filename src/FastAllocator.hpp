@@ -1,7 +1,9 @@
 #pragma once
 
+extern "C" {
 #include "postgres.h"
 #include "utils/memdebug.h"
+}
 
 #include "Misc.hpp"
 

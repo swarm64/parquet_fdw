@@ -1,5 +1,6 @@
 
 #include "ParquetFdwReader.hpp"
+#include "Conversion.hpp"
 
 extern "C" {
 #include "postgres.h"
@@ -7,9 +8,11 @@ extern "C" {
 #include "executor/tuptable.h"
 #include "parser/parse_coerce.h"
 #include "utils/array.h"
+#include "utils/builtins.h"
 #include "utils/date.h"
 #include "utils/memutils.h"
 #include "utils/lsyscache.h"
+#include "utils/timestamp.h"
 }
 
 bool parquet_fdw_use_threads = true;

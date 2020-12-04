@@ -13,8 +13,6 @@ extern "C" {
 #include "postgres_ext.h"
 #include "access/attnum.h"
 #include "catalog/pg_type_d.h"
-// #include "utils/builtins.h"
-// #include "utils/timestamp.h"
 }
 
 struct FmgrInfo;

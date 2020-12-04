@@ -1,5 +1,5 @@
 
-#include "ParquetFdwReader.h"
+#include "ParquetFdwReader.hpp"
 
 extern "C" {
 #include "postgres.h"

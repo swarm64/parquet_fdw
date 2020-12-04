@@ -3,7 +3,7 @@
 #include "postgres.h"
 #include "utils/memdebug.h"
 
-#include "Misc.h"
+#include "Misc.hpp"
 
 class FastAllocator
 {

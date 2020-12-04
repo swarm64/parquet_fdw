@@ -78,8 +78,8 @@ extern "C"
 }
 
 
-#include "src/Error.h"
-#include "src/ParquetFdwReader.h"
+#include "src/Error.hpp"
+#include "src/ParquetFdwReader.hpp"
 
 
 /* from costsize.c */

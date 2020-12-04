@@ -10,9 +10,9 @@
 #include <atomic>
 #include <set>
 
-#include "Error.h"
-#include "FastAllocator.h"
-#include "Misc.h"
+#include "Error.hpp"
+#include "FastAllocator.hpp"
+#include "Misc.hpp"
 
 static Oid to_postgres_type(int arrow_type);
 

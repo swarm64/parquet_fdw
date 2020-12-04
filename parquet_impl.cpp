@@ -7,6 +7,10 @@
 #include <libgen.h>
 #endif
 
+#if __cplusplus > 199711L
+#define register      // Deprecated in C++11.
+#endif  // #if __cplusplus > 199711L
+
 #include <sys/stat.h>
 
 #include <list>
@@ -199,7 +203,7 @@ struct ParallelCoordinator
 static int
 get_arrow_list_elem_type(arrow::DataType *type)
 {
-    auto children = type->children();
+    auto children = type->fields();
 
     Assert(children.size() == 1);
     return children[0]->type()->id();
@@ -667,7 +671,7 @@ public:
                     }
                     else
                     {
-                        slot->tts_values[attr] = 
+                        slot->tts_values[attr] =
                             this->read_primitive_type(array,
                                                       arrow_type_id,
                                                       chunkInfo.pos,
@@ -1046,7 +1050,7 @@ public:
         this->initialized = true;
     }
 
-    /* 
+    /*
      * copy_to_c_array
      *      memcpy plain values from Arrow array to a C array.
      */
@@ -1307,7 +1311,7 @@ private:
     bool                slots_initialized;
 
 private:
-    /* 
+    /*
      * Compares two slots according to sort keys. Returns true if a > b,
      * false otherwise. The function is stolen from nodeGatherMerge.c
      * (postgres) and adapted.
@@ -1964,7 +1968,7 @@ extract_parquet_fields(const char *path) noexcept
                 Oid     pg_subtype;
                 bool    error = false;
 
-                if (type->children().size() != 1)
+                if (type->fields().size() != 1)
                     throw std::runtime_error("lists of structs are not supported");
 
                 subtype_id = get_arrow_list_elem_type(type.get());
@@ -2271,7 +2275,7 @@ parquetGetForeignRelSize(PlannerInfo *root,
 
     fdw_private = (ParquetFdwPlanState *) palloc0(sizeof(ParquetFdwPlanState));
     get_table_options(foreigntableid, fdw_private);
-    
+
     baserel->fdw_private = fdw_private;
 }
 
@@ -2739,7 +2743,7 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
                 break;
             case RT_MULTI_MERGE:
                 festate = new MultifileMergeExecutionState(reader_cxt, tupleDesc,
-                                                           attrs_used, sort_keys, 
+                                                           attrs_used, sort_keys,
                                                            use_threads, use_mmap);
                 break;
             default:
@@ -3254,7 +3258,7 @@ parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
         else if (strcmp(def->defname, "files_func") == 0)
         {
             Oid     jsonboid = JSONBOID;
-            List   *funcname = stringToQualifiedNameList(defGetString(def)); 
+            List   *funcname = stringToQualifiedNameList(defGetString(def));
             Oid     funcoid;
             Oid     rettype;
 
@@ -3272,7 +3276,7 @@ parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
         }
         else if (strcmp(def->defname, "files_func_arg") == 0)
         {
-            /* 
+            /*
              * Try to convert the string value into JSONB to validate it is
              * properly formatted.
              */

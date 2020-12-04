@@ -13,8 +13,14 @@
 #include "Error.hpp"
 #include "FastAllocator.hpp"
 #include "Misc.hpp"
+#include "ParallelCoordinator.hpp"
 
-static Oid to_postgres_type(int arrow_type);
+extern "C" {
+#include "access/attnum.h"
+#include "access/tupdesc.h"
+#include "executor/tuptable.h"
+#include "nodes/primnodes.h"
+}
 
 static int
 get_arrow_list_elem_type(arrow::DataType *type)
@@ -25,11 +31,21 @@ get_arrow_list_elem_type(arrow::DataType *type)
     return children[0]->type()->id();
 }
 
-
-struct ParallelCoordinator
+/*
+ * Restriction
+ */
+struct RowGroupFilter
 {
-    std::atomic<int32> next_reader;
-    std::atomic<int32> next_rowgroup;
+    AttrNumber  attnum;
+    Const      *value;
+    int         strategy;
+};
+
+struct ChunkInfo
+{
+    int     chunk;      /* current chunk number */
+    int64   pos;        /* current pos within chunk */
+    int64   len;        /* current chunk length */
 };
 
 class ParquetFdwReader

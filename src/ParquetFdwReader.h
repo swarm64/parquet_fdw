@@ -1,0 +1,168 @@
+#pragma once
+
+#include "arrow/api.h"
+#include "arrow/array.h"
+#include "parquet/arrow/reader.h"
+#include "parquet/arrow/schema.h"
+#include "parquet/file_reader.h"
+#include "parquet/statistics.h"
+
+#include <atomic>
+#include <set>
+
+#include "Error.h"
+#include "FastAllocator.h"
+#include "Misc.h"
+
+static Oid to_postgres_type(int arrow_type);
+
+static int
+get_arrow_list_elem_type(arrow::DataType *type)
+{
+    auto children = type->fields();
+
+    Assert(children.size() == 1);
+    return children[0]->type()->id();
+}
+
+
+struct ParallelCoordinator
+{
+    std::atomic<int32> next_reader;
+    std::atomic<int32> next_rowgroup;
+};
+
+class ParquetFdwReader
+{
+private:
+    struct PgTypeInfo
+    {
+        Oid     oid;
+
+        /* For array types. elem_type == InvalidOid means type is not an array */
+        Oid     elem_type;
+        int16   elem_len;
+        bool    elem_byval;
+        char    elem_align;
+    };
+public:
+    /* id needed for parallel execution */
+    int32                           reader_id;
+
+    std::unique_ptr<parquet::arrow::FileReader> reader;
+
+    std::shared_ptr<arrow::Schema>  schema;
+
+    /* Arrow column indices that are used in query */
+    std::vector<int>                indices;
+
+    /*
+     * Mapping between slot attributes and arrow result set columns.
+     * Corresponds to 'indices' vector.
+     */
+    std::vector<int>                map;
+
+    /*
+     * Cast functions from dafult postgres type defined in `to_postgres_type`
+     * to actual table column type.
+     */
+    std::vector<FmgrInfo *>         castfuncs;
+
+    /* Current row group */
+    std::shared_ptr<arrow::Table>   table;
+
+    /*
+     * Plain pointers to inner the structures of row group. It's needed to
+     * prevent excessive shared_ptr management.
+     */
+    std::vector<arrow::Array *>     chunks;
+    std::vector<arrow::DataType *>  types;
+
+    std::vector<PgTypeInfo>         pg_types;
+
+    bool           *has_nulls;          /* per-column info on nulls */
+
+    int             row_group;          /* current row group index */
+    uint32_t        row;                /* current row within row group */
+    uint32_t        num_rows;           /* total rows in row group */
+    std::vector<ChunkInfo> chunk_info;  /* current chunk and position per-column */
+
+    /*
+     * Filters built from query restrictions that help to filter out row
+     * groups.
+     */
+    std::list<RowGroupFilter>       filters;
+
+    /*
+     * List of row group indexes to scan
+     */
+    std::vector<int>                rowgroups;
+
+    FastAllocator                  *allocator;
+
+    /* Coordinator for parallel query execution */
+    ParallelCoordinator            *coordinator;
+
+    /* Wether object is properly initialized */
+    bool     initialized;
+
+    ParquetFdwReader(int reader_id)
+        : reader_id(reader_id), row_group(-1), row(0), num_rows(0),
+          coordinator(NULL), initialized(false)
+    { }
+
+    ~ParquetFdwReader()
+    {
+        if (allocator)
+            delete allocator;
+    }
+
+    void open(const char *filename,
+              MemoryContext cxt,
+              TupleDesc tupleDesc,
+              std::set<int> &attrs_used,
+              bool use_threads,
+              bool use_mmap);
+
+    bool read_next_rowgroup(TupleDesc tupleDesc);
+    bool next(TupleTableSlot *slot, bool fake=false);
+    void populate_slot(TupleTableSlot *slot, bool fake=false);
+    void rescan(void);
+    Datum
+    read_primitive_type(arrow::Array *array,
+                        int type_id, int64_t i,
+                        FmgrInfo *castfunc);
+    Datum
+    nested_list_get_datum(arrow::Array *array, int arrow_type,
+                          PgTypeInfo *pg_type, FmgrInfo *castfunc);
+
+    void initialize_castfuncs(TupleDesc tupleDesc);
+
+    /*
+     * copy_to_c_array
+     *      memcpy plain values from Arrow array to a C array.
+     */
+    template<typename T> static inline void
+    copy_to_c_array(T *values, const arrow::Array *array, int elem_size)
+    {
+        const T *in = GetPrimitiveValues<T>(*array);
+
+        memcpy(values, in, elem_size * array->length());
+    }
+
+    /*
+     * GetPrimitiveValues
+     *      Get plain C value array. Copy-pasted from Arrow.
+     */
+    template <typename T>
+    static inline const T* GetPrimitiveValues(const arrow::Array& arr) {
+        if (arr.length() == 0) {
+            return nullptr;
+        }
+        const auto& prim_arr = arrow::internal::checked_cast<const arrow::PrimitiveArray&>(arr);
+        const T* raw_values = reinterpret_cast<const T*>(prim_arr.values()->data());
+        return raw_values + arr.offset();
+    }
+
+    void set_rowgroups_list(const std::vector<int> &rowgroups);
+};

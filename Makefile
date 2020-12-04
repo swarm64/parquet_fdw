@@ -1,5 +1,5 @@
 MODULE_big = parquet_fdw
-OBJS = parquet_impl.o parquet_fdw.o
+OBJS = parquet_impl.o parquet_fdw.o src/ParquetFdwReader.o
 PGFILEDESC = "parquet_fdw - foreign data wrapper for parquet"
 
 SHLIB_LINK = -lm -lstdc++ -lparquet -larrow
@@ -11,10 +11,11 @@ REGRESS = parquet_fdw import
 
 EXTRA_CLEAN = sql/parquet_fdw.sql expected/parquet_fdw.out
 
-PG_CONFIG ?= pg_config
+# PG_CONFIG ?= pg_config
+PG_CONFIG = /usr/pgsql-12/bin/pg_config
 
 # parquet_impl.cpp requires C++ 11.
-override PG_CXXFLAGS += -std=c++11 -O3 -Wall -Werror
+override PG_CXXFLAGS += -std=c++11 -O3 -Wall -Werror -Wfatal-errors
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 

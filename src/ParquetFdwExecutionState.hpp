@@ -1,8 +1,9 @@
 
 #pragma once
 
-struct TupleTableSlot;
 struct List;
+struct ParallelCoordinator;
+struct TupleTableSlot;
 
 class ParquetFdwExecutionState
 {

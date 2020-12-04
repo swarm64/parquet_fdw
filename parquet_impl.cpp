@@ -80,6 +80,7 @@ extern "C"
 
 #include "src/Conversion.hpp"
 #include "src/Error.hpp"
+#include "src/Helpers.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/MultifileExecutionState.hpp"
@@ -123,8 +124,6 @@ struct ParquetFdwPlanState
     uint64      ntuples;
     ReaderType  type;
 };
-
-
 
 
 /*

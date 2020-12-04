@@ -1,6 +1,7 @@
 
 #include "ParquetFdwReader.hpp"
 #include "Conversion.hpp"
+#include "Helpers.hpp"
 
 extern "C" {
 #include "postgres.h"

@@ -1665,6 +1665,7 @@ parquetIsForeignScanParallelSafe(PlannerInfo *root, RelOptInfo *rel,
 extern "C" Size
 parquetEstimateDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt)
 {
+    // Potentially wrong, should take amount of files/readers into account
     return sizeof(ParallelCoordinator);
 }
 
@@ -1679,6 +1680,17 @@ parquetInitializeDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt,
     std::atomic_init(&coord->next_rowgroup, 0);
     festate = (ParquetFdwExecutionState *) node->fdw_state;
     festate->set_coordinator(coord);
+
+    const auto* multifileExecutionState = static_cast<MultifileExecutionState*>(festate);
+    if (multifileExecutionState) {
+        // const auto files = multifileExecutionState->files;
+    } else
+        elog(ERROR, "Could not convert to MultifileExecutionState");
+    /*
+    r = new ParquetFdwReader(cur_reader);
+    r->open(files[cur_reader].filename.c_str(), cxt, tupleDesc, attrs_used, use_threads, use_mmap);
+    r->set_rowgroups_list(files[cur_reader].rowgroups);
+    */
 }
 
 extern "C" void

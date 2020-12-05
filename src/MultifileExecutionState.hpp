@@ -15,16 +15,18 @@ extern "C" {
 class MultifileExecutionState : public ParquetFdwExecutionState
 {
 private:
-    struct FileRowgroups
-    {
+    struct FileRowgroups {
         std::string         filename;
         std::vector<int>    rowgroups;
     };
+
 private:
-    ParquetFdwReader       *reader;
+    // ParquetFdwReader       *reader;
 
     std::vector<FileRowgroups> files;
-    uint64_t                cur_reader;
+    std::vector<std::shared_ptr<ParquetFdwReader>> readers;
+
+    // uint64_t                cur_reader;
 
     MemoryContext           cxt;
     TupleDesc               tupleDesc;
@@ -35,7 +37,8 @@ private:
     ParallelCoordinator    *coord;
 
 private:
-    ParquetFdwReader *get_next_reader();
+    // bool messageDone = false;
+    // ParquetFdwReader *get_next_reader();
 
 public:
     MultifileExecutionState(MemoryContext cxt,

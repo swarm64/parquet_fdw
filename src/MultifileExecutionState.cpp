@@ -2,6 +2,7 @@
 #include "MultifileExecutionState.hpp"
 #include "ParallelCoordinator.hpp"
 
+/*
 ParquetFdwReader* MultifileExecutionState::get_next_reader()
 {
     ParquetFdwReader *r;
@@ -20,36 +21,57 @@ ParquetFdwReader* MultifileExecutionState::get_next_reader()
 
     return r;
 }
+*/
 
 MultifileExecutionState::MultifileExecutionState(MemoryContext cxt,
                         TupleDesc tupleDesc,
                         std::set<int> attrs_used,
                         bool use_threads,
                         bool use_mmap)
-    : reader(NULL), cur_reader(0), cxt(cxt), tupleDesc(tupleDesc),
+    : cxt(cxt), tupleDesc(tupleDesc),
       attrs_used(attrs_used), use_threads(use_threads), use_mmap(use_mmap),
       coord(NULL)
 { }
 
 MultifileExecutionState::~MultifileExecutionState()
 {
-    if (reader)
-        delete reader;
+    readers.clear();
 }
 
 bool MultifileExecutionState::next(TupleTableSlot *slot, bool fake)
 {
     bool    res;
 
+    std::shared_ptr<ParquetFdwReader> reader;
+    if (coord) {
+        const auto currentReader = coord->next_reader.load(std::memory_order_relaxed);
+        // TODO: fix size comparison
+        if (currentReader >= (int)readers.size())
+            return false;
+
+        reader = readers[currentReader];
+        /*
+        if (reader->readAllRowGroups()) {
+            return false;
+        }
+        */
+    }
+
+    // TODO: get next reader for multi file
+    // return false;
+
+    /*
     if (unlikely(reader == NULL))
     {
         if ((reader = this->get_next_reader()) == NULL)
             return false;
     }
+    */
 
     res = reader->next(slot, fake);
 
     /* Finished reading current reader? Proceed to the next one */
+    /*
     if (unlikely(!res))
     {
         while (true)
@@ -65,6 +87,7 @@ bool MultifileExecutionState::next(TupleTableSlot *slot, bool fake)
                 break;
         }
     }
+    */
 
     if (res)
     {
@@ -80,21 +103,28 @@ bool MultifileExecutionState::next(TupleTableSlot *slot, bool fake)
 
 void MultifileExecutionState::rescan(void)
 {
-    reader->rescan();
+    elog(ERROR, "rescan not implemented...");
+    // reader->rescan();
 }
 
-void MultifileExecutionState::add_file(const char *filename, List *rowgroups)
-{
+void MultifileExecutionState::add_file(const char *filename, List *rowgroups) {
     FileRowgroups   fr;
     ListCell       *lc;
 
     fr.filename = filename;
     foreach (lc, rowgroups)
         fr.rowgroups.push_back(lfirst_int(lc));
+
     files.push_back(fr);
+    const auto reader = std::make_shared<ParquetFdwReader>(filename, 0);
+    reader->open(filename, cxt, tupleDesc, attrs_used, use_threads, use_mmap);
+    reader->set_rowgroups_list(fr.rowgroups);
+    readers.push_back(reader);
 }
 
 void MultifileExecutionState::set_coordinator(ParallelCoordinator *coord)
 {
     this->coord = coord;
+    for (auto& reader : readers)
+        reader->set_coordinator(coord);
 }

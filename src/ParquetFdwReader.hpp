@@ -8,6 +8,7 @@
 #include "parquet/statistics.h"
 
 #include <atomic>
+#include <filesystem>
 #include <set>
 
 #include "Error.hpp"
@@ -53,6 +54,7 @@ private:
         char    elem_align;
     };
 public:
+    const std::filesystem::path filePath;
     /* id needed for parallel execution */
     int32                           reader_id;
 
@@ -113,8 +115,8 @@ public:
     /* Wether object is properly initialized */
     bool     initialized;
 
-    ParquetFdwReader(int reader_id)
-        : reader_id(reader_id), row_group(-1), row(0), num_rows(0),
+    ParquetFdwReader(const char* file_path, const int reader_id)
+        : filePath(file_path), reader_id(reader_id), row_group(-1), row(0), num_rows(0),
           coordinator(NULL), initialized(false)
     { }
 
@@ -172,4 +174,13 @@ public:
     }
 
     void set_rowgroups_list(const std::vector<int> &rowgroups);
+
+    bool readAllRowGroups() const {
+        // TODO: fix size comparison
+        return row_group >= (int)rowgroups.size();
+    }
+
+    void set_coordinator(ParallelCoordinator* _coordinator) {
+        coordinator = _coordinator;
+    }
 };

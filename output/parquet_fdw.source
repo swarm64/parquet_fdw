@@ -52,7 +52,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY one;
         QUERY PLAN        
 --------------------------
  Foreign Scan on example1
-   Reader: Single File
+   Reader: Multifile
    Row groups: 1, 2
 (3 rows)
 
@@ -62,7 +62,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY three;
  Sort
    Sort Key: three
    ->  Foreign Scan on example1
-         Reader: Single File
+         Reader: Multifile
          Row groups: 1, 2
 (5 rows)
 
@@ -406,7 +406,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
             QUERY PLAN             
 -----------------------------------
  Foreign Scan on example_multisort
-   Reader: Single File
+   Reader: Multifile
    Row groups: 1, 2
 (3 rows)
 

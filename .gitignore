@@ -1,6 +1,10 @@
 *.o
 *.so
 *.bc
+*.plist
+*.log
 regression.diffs
 regression.out
 results
+.clangd
+compile_commands.json

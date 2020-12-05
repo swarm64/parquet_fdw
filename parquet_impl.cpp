@@ -85,7 +85,6 @@ extern "C"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/MultifileExecutionState.hpp"
 #include "src/MultifileMergeExecutionState.hpp"
-#include "src/SinglefileExecutionState.hpp"
 
 
 /* from costsize.c */
@@ -105,8 +104,7 @@ static void destroy_parquet_state(void *arg);
 
 enum ReaderType
 {
-    RT_SINGLE = 0,
-    RT_MULTI,
+    RT_MULTI = 0,
     RT_MULTI_MERGE
 };
 
@@ -1053,7 +1051,7 @@ parquetGetForeignPaths(PlannerInfo *root,
     /* Collect used attributes to reduce number of read columns during scan */
     extract_used_attributes(baserel);
 
-    fdw_private->type = is_multi ? RT_MULTI : RT_SINGLE;
+    fdw_private->type = RT_MULTI;
 
     /* Build pathkeys based on attrs_sorted */
     foreach (lc, fdw_private->attrs_sorted)
@@ -1130,7 +1128,7 @@ parquetGetForeignPaths(PlannerInfo *root,
 
         private_parallel = (ParquetFdwPlanState *) palloc(sizeof(ParquetFdwPlanState));
         memcpy(private_parallel, fdw_private, sizeof(ParquetFdwPlanState));
-        private_parallel->type = is_multi ? RT_MULTI : RT_SINGLE;
+        private_parallel->type = RT_MULTI;
 
         Path *parallel_path = (Path *)
                  create_foreignscan_path(root, baserel,
@@ -1240,7 +1238,7 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
     bool            use_mmap = false;
     bool            use_threads = false;
     int             i = 0;
-    ReaderType      reader_type = RT_SINGLE;
+    ReaderType      reader_type = RT_MULTI;
 
     /* Unwrap fdw_private */
     foreach (lc, fdw_private)
@@ -1321,12 +1319,6 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
     {
         switch (reader_type)
         {
-            case RT_SINGLE:
-                festate = new SingleFileExecutionState(reader_cxt, tupleDesc,
-                                                       attrs_used, use_threads,
-                                                       use_mmap);
-                festate->stateId = MyProcPid;
-                break;
             case RT_MULTI:
                 festate = new MultifileExecutionState(reader_cxt, tupleDesc,
                                                       attrs_used, use_threads,
@@ -1612,9 +1604,6 @@ parquetExplainForeignScan(ForeignScanState *node, ExplainState *es)
 
     switch (reader_type)
     {
-        case RT_SINGLE:
-            ExplainPropertyText("Reader", "Single File", es);
-            break;
         case RT_MULTI:
             ExplainPropertyText("Reader", "Multifile", es);
             break;

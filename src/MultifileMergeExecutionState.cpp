@@ -50,10 +50,9 @@ MultifileMergeExecutionState::MultifileMergeExecutionState(MemoryContext cxt,
                              std::list<SortSupportData> sort_keys,
                              bool use_threads,
                              bool use_mmap)
-    : cxt(cxt), tupleDesc(tupleDesc), attrs_used(attrs_used),
-      sort_keys(sort_keys), use_threads(use_threads), use_mmap(use_mmap),
-      slots_initialized(false)
-{ }
+    : ParquetFdwExecutionState(cxt, tupleDesc, attrs_used, use_threads, use_mmap)
+      , slots_initialized(false)
+{}
 
 MultifileMergeExecutionState::~MultifileMergeExecutionState()
 {
@@ -63,8 +62,7 @@ MultifileMergeExecutionState::~MultifileMergeExecutionState()
         ExecDropSingleTupleTableSlot(it.slot);
 #endif
 
-    for (auto it: readers)
-        delete it;
+    readers.clear();
 }
 
 bool MultifileMergeExecutionState::next(TupleTableSlot *slot, bool fake)
@@ -164,29 +162,17 @@ bool MultifileMergeExecutionState::next(TupleTableSlot *slot, bool fake)
 
 void MultifileMergeExecutionState::rescan(void)
 {
+    elog(ERROR, "rescan not implemented...");
     /* TODO: clean binheap */
+    /*
     for (auto reader: readers)
         reader->rescan();
     slots.clear();
     slots_initialized = false;
+    */
 }
 
-void MultifileMergeExecutionState::add_file(const char *filename, List *rowgroups)
+void MultifileMergeExecutionState::set_coordinator(ReadCoordinator *coord)
 {
-    ParquetFdwReader *r;
-    ListCell         *lc;
-    std::vector<int>    rg;
-
-    foreach (lc, rowgroups)
-        rg.push_back(lfirst_int(lc));
-
-    r = new ParquetFdwReader(0);
-    r->open(filename, cxt, tupleDesc, attrs_used, use_threads, use_mmap);
-    r->set_rowgroups_list(rg);
-    readers.push_back(r);
-}
-
-void MultifileMergeExecutionState::set_coordinator(ParallelCoordinator *coord)
-{
-    Assert(true);   /* not supported, should never happen */
+    elog(ERROR, "Set coordinator not support on MultifileMergeExecutionState");
 }

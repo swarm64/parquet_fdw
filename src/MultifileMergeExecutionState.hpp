@@ -7,7 +7,7 @@ extern "C" {
 #include "utils/sortsupport.h"
 }
 
-class MultifileMergeExecutionState : public ParquetFdwExecutionState
+class MultifileMergeExecutionState : public ParquetFdwExecutionState // ParquetFdwExecutionState
 {
     struct FileSlot
     {
@@ -16,14 +16,7 @@ class MultifileMergeExecutionState : public ParquetFdwExecutionState
     };
     typedef std::vector<FileSlot> BinHeap;
 private:
-    std::vector<ParquetFdwReader *>   readers;
-
-    MemoryContext       cxt;
-    TupleDesc           tupleDesc;
-    std::set<int>       attrs_used;
     std::list<SortSupportData> sort_keys;
-    bool                use_threads;
-    bool                use_mmap;
 
     /*
      * Heap is used to store tuples in prioritized manner along with file
@@ -56,6 +49,5 @@ public:
 
     bool next(TupleTableSlot *slot, bool fake=false);
     void rescan(void);
-    void add_file(const char *filename, List *rowgroups);
-    void set_coordinator(ParallelCoordinator *coord);
+    void set_coordinator(ReadCoordinator *coord);
 };

@@ -49,12 +49,14 @@ SELECT count(*) as count FROM example1;
 
 -- sorting
 EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY one;
-        QUERY PLAN        
---------------------------
- Foreign Scan on example1
-   Reader: Multifile
-   Row groups: 1, 2
-(3 rows)
+           QUERY PLAN           
+--------------------------------
+ Sort
+   Sort Key: one
+   ->  Foreign Scan on example1
+         Reader: Multifile
+         Row groups: 1, 2
+(5 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY three;
            QUERY PLAN           
@@ -282,27 +284,29 @@ CREATE FOREIGN TABLE example_sorted (
     seven   FLOAT8)
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet @abs_srcdir@/data/example2.parquet', sorted 'one');
-EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
-           QUERY PLAN           
---------------------------------
- Foreign Scan on example_sorted
-   Reader: Multifile Merge
-   Row groups: 
-     example1.parquet: 1, 2
-     example2.parquet: 1
-(5 rows)
+EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one, three;
+              QUERY PLAN              
+--------------------------------------
+ Sort
+   Sort Key: one, three
+   ->  Foreign Scan on example_sorted
+         Reader: Multifile
+         Row groups: 
+           example1.parquet: 1, 2
+           example2.parquet: 1
+(7 rows)
 
-SELECT * FROM example_sorted ORDER BY one;
+SELECT * FROM example_sorted ORDER BY one, three;
  one |    two     | three |        four         |    five    | six | seven 
 -----+------------+-------+---------------------+------------+-----+-------
    1 | {19,20}    | eins  | 2018-01-01 00:00:00 | 2018-01-01 | t   |      
    1 | {1,2,3}    | foo   | 2018-01-01 00:00:00 | 2018-01-01 | t   |   0.5
    2 | {NULL,5,6} | bar   | 2018-01-02 00:00:00 | 2018-01-02 | f   |      
-   3 | {21,22}    | zwei  | 2018-01-03 00:00:00 | 2018-01-03 | f   |      
    3 | {7,8,9}    | baz   | 2018-01-03 00:00:00 | 2018-01-03 | t   |     1
+   3 | {21,22}    | zwei  | 2018-01-03 00:00:00 | 2018-01-03 | f   |      
    4 | {10,11,12} | uno   | 2018-01-04 00:00:00 | 2018-01-04 | f   |   0.5
-   5 | {23,24}    | drei  | 2018-01-05 00:00:00 | 2018-01-05 | t   |      
    5 | {13,14,15} | dos   | 2018-01-05 00:00:00 | 2018-01-05 | f   |      
+   5 | {23,24}    | drei  | 2018-01-05 00:00:00 | 2018-01-05 | t   |      
    6 | {16,17,18} | tres  | 2018-01-06 00:00:00 | 2018-01-06 | f   |     1
    7 | {25,26}    | vier  | 2018-01-07 00:00:00 | 2018-01-07 | f   |      
    9 | {27,28}    | fünf  | 2018-01-09 00:00:00 | 2018-01-09 | t   |      
@@ -312,6 +316,7 @@ SELECT * FROM example_sorted ORDER BY one;
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0.001;
 SET cpu_operator_cost = 0.000025;
+SET max_parallel_workers_per_gather = 2;
 ANALYZE example_seq;
 ANALYZE example_sorted;
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq;
@@ -403,12 +408,14 @@ CREATE FOREIGN TABLE example_multisort (
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one five');
 EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
-            QUERY PLAN             
------------------------------------
- Foreign Scan on example_multisort
-   Reader: Multifile
-   Row groups: 1, 2
-(3 rows)
+               QUERY PLAN                
+-----------------------------------------
+ Sort
+   Sort Key: one, five
+   ->  Foreign Scan on example_multisort
+         Reader: Multifile
+         Row groups: 1, 2
+(5 rows)
 
 SELECT * FROM example_multisort ORDER BY one, five;
  one |    two     | three |        four         |    five    | six 

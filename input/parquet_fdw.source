@@ -130,13 +130,14 @@ CREATE FOREIGN TABLE example_sorted (
     seven   FLOAT8)
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet @abs_srcdir@/data/example2.parquet', sorted 'one');
-EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
-SELECT * FROM example_sorted ORDER BY one;
+EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one, three;
+SELECT * FROM example_sorted ORDER BY one, three;
 
 -- parallel execution
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0.001;
 SET cpu_operator_cost = 0.000025;
+SET max_parallel_workers_per_gather = 2;
 ANALYZE example_seq;
 ANALYZE example_sorted;
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq;

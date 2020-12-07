@@ -83,7 +83,6 @@ extern "C"
 #include "src/Helpers.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
-#include "src/MultifileExecutionState.hpp"
 #include "src/MultifileMergeExecutionState.hpp"
 
 
@@ -104,8 +103,8 @@ static void destroy_parquet_state(void *arg);
 
 enum ReaderType
 {
-    RT_MULTI = 0,
-    RT_MULTI_MERGE
+    RT_MULTI = 0
+    // , RT_MULTI_MERGE
 };
 
 /*
@@ -965,6 +964,7 @@ extract_used_attributes(RelOptInfo *baserel)
  *      Calculate the cost of merging nfiles files. The entire logic is stolen
  *      from cost_gather_merge().
  */
+/*
 static void
 cost_merge(Path *path, uint32 nfiles, Cost input_startup_cost,
            Cost input_total_cost, double rows)
@@ -978,21 +978,22 @@ cost_merge(Path *path, uint32 nfiles, Cost input_startup_cost,
     N = nfiles;
     logN = LOG2(N);
 
-	/* Assumed cost per tuple comparison */
+	// Assumed cost per tuple comparison
 	comparison_cost = 2.0 * cpu_operator_cost;
 
-	/* Heap creation cost */
+	// Heap creation cost
 	startup_cost += comparison_cost * N * logN;
 
-	/* Per-tuple heap maintenance cost */
+	// Per-tuple heap maintenance cost
 	run_cost += rows * comparison_cost * logN;
 
-	/* small cost for heap management, like cost_merge_append */
+	// small cost for heap management, like cost_merge_append
 	run_cost += cpu_operator_cost * rows;
 
 	path->startup_cost = startup_cost + input_startup_cost;
 	path->total_cost = (startup_cost + run_cost + input_total_cost);
 }
+*/
 
 extern "C" void
 parquetGetForeignPaths(PlannerInfo *root,
@@ -1004,7 +1005,7 @@ parquetGetForeignPaths(PlannerInfo *root,
 	Cost		startup_cost;
 	Cost		total_cost;
     Cost        run_cost;
-    bool        is_sorted, is_multi;
+    // bool        is_sorted, is_multi;
     List       *pathkeys = NIL;
     RangeTblEntry  *rte;
     Relation        rel;
@@ -1013,8 +1014,8 @@ parquetGetForeignPaths(PlannerInfo *root,
     ListCell       *lc;
 
     fdw_private = (ParquetFdwPlanState *) baserel->fdw_private;
-    is_sorted = fdw_private->attrs_sorted != NIL;
-    is_multi = list_length(fdw_private->filenames) > 1;
+    // is_sorted = fdw_private->attrs_sorted != NIL;
+    // is_multi = list_length(fdw_private->filenames) > 1;
 
     /* Analyze query clauses and extract ones that can be of interest to us*/
     extract_rowgroup_filters(baserel->baserestrictinfo, filters);
@@ -1082,6 +1083,7 @@ parquetGetForeignPaths(PlannerInfo *root,
     }
 
     /* Create a separate path with pathkeys for sorted parquet files. */
+    /*
     if (is_sorted)
     {
         Path                   *path;
@@ -1091,16 +1093,16 @@ parquetGetForeignPaths(PlannerInfo *root,
         memcpy(private_sort, fdw_private, sizeof(ParquetFdwPlanState));
 
         path = (Path *) create_foreignscan_path(root, baserel,
-                                                NULL,	/* default pathtarget */
+                                                NULL,	// default pathtarget
                                                 baserel->rows,
                                                 startup_cost,
                                                 total_cost,
                                                 pathkeys,
-                                                NULL,	/* no outer rel either */
-                                                NULL,	/* no extra plan */
+                                                NULL,	// no outer rel either
+                                                NULL,	// no extra plan
                                                 (List *) private_sort);
 
-        /* For multifile case calculate the cost of merging files */
+        // For multifile case calculate the cost of merging files
         if (is_multi)
         {
             private_sort->type = RT_MULTI_MERGE;
@@ -1110,6 +1112,7 @@ parquetGetForeignPaths(PlannerInfo *root,
         }
         add_path(baserel, path);
     }
+    */
 
 	foreign_path = (Path *) create_foreignscan_path(root, baserel,
                                                     NULL,	/* default pathtarget */
@@ -1150,6 +1153,7 @@ parquetGetForeignPaths(PlannerInfo *root,
         parallel_path->parallel_safe    = true;
 
         /* Create GatherMerge path for sorted parquet files */
+        /*
         if (is_sorted)
         {
             GatherMergePath *gather_merge =
@@ -1157,6 +1161,7 @@ parquetGetForeignPaths(PlannerInfo *root,
                                          pathkeys, NULL, NULL);
             add_path(baserel, (Path *) gather_merge);
         }
+        */
         add_partial_path(baserel, parallel_path);
     }
 }
@@ -1240,6 +1245,8 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
     int             i = 0;
     ReaderType      reader_type = RT_MULTI;
 
+    // elog(WARNING, "%d Begin foreign scan", MyProcPid);
+
     /* Unwrap fdw_private */
     foreach (lc, fdw_private)
     {
@@ -1320,15 +1327,17 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
         switch (reader_type)
         {
             case RT_MULTI:
-                festate = new MultifileExecutionState(reader_cxt, tupleDesc,
+                festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc,
                                                       attrs_used, use_threads,
                                                       use_mmap);
                 break;
+            /*
             case RT_MULTI_MERGE:
                 festate = new MultifileMergeExecutionState(reader_cxt, tupleDesc,
                                                            attrs_used, sort_keys,
                                                            use_threads, use_mmap);
                 break;
+            */
             default:
                 throw std::runtime_error("unknown reader type");
         }
@@ -1348,6 +1357,8 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
     {
         elog(ERROR, "parquet_fdw: %s", e.what());
     }
+
+    festate->fillReadList();
 
     /*
      * Enable automatic execution state destruction by using memory context
@@ -1480,7 +1491,7 @@ parquetAcquireSampleRowsFunc(Relation relation, int elevel,
     reader_cxt = AllocSetContextCreate(CurrentMemoryContext,
                                        "parquet_fdw tuple data",
                                        ALLOCSET_DEFAULT_SIZES);
-    festate = new MultifileExecutionState(reader_cxt,
+    festate = new ParquetFdwExecutionState(reader_cxt,
                                           tupleDesc,
                                           attrs_used,
                                           fdw_private.use_threads,
@@ -1607,9 +1618,11 @@ parquetExplainForeignScan(ForeignScanState *node, ExplainState *es)
         case RT_MULTI:
             ExplainPropertyText("Reader", "Multifile", es);
             break;
+        /*
         case RT_MULTI_MERGE:
             ExplainPropertyText("Reader", "Multifile Merge", es);
             break;
+        */
     }
 
     forboth(lc, filenames, lc2, rowgroups_list)
@@ -1666,40 +1679,27 @@ extern "C" Size
 parquetEstimateDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt)
 {
     // Potentially wrong, should take amount of files/readers into account
-    return sizeof(ParallelCoordinator);
+    return sizeof(ReadCoordinator);
 }
 
 extern "C" void
 parquetInitializeDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt,
                                 void *coordinate)
 {
-    ParallelCoordinator        *coord = (ParallelCoordinator *) coordinate;
+    // elog(WARNING, "Initialize DSM: %d", MyProcPid);
+    ReadCoordinator        *coord = (ReadCoordinator *) coordinate;
     ParquetFdwExecutionState   *festate;
 
-    std::atomic_init(&coord->next_reader, 0);
-    std::atomic_init(&coord->next_rowgroup, 0);
     festate = (ParquetFdwExecutionState *) node->fdw_state;
     festate->set_coordinator(coord);
-
-    const auto* multifileExecutionState = static_cast<MultifileExecutionState*>(festate);
-    if (multifileExecutionState) {
-        // const auto files = multifileExecutionState->files;
-    } else
-        elog(ERROR, "Could not convert to MultifileExecutionState");
-    /*
-    r = new ParquetFdwReader(cur_reader);
-    r->open(files[cur_reader].filename.c_str(), cxt, tupleDesc, attrs_used, use_threads, use_mmap);
-    r->set_rowgroups_list(files[cur_reader].rowgroups);
-    */
 }
 
 extern "C" void
 parquetReInitializeDSMForeignScan(ForeignScanState *node,
                                   ParallelContext *pcxt, void *coordinate)
 {
-    ParallelCoordinator    *coord = (ParallelCoordinator *) coordinate;
-
-    std::atomic_init(&coord->next_rowgroup, (int32)0);
+    ReadCoordinator    *coord = (ReadCoordinator *) coordinate;
+    coord->reset();
 }
 
 extern "C" void
@@ -1707,10 +1707,11 @@ parquetInitializeWorkerForeignScan(ForeignScanState *node,
                                    shm_toc *toc,
                                    void *coordinate)
 {
-    ParallelCoordinator        *coord   = (ParallelCoordinator *) coordinate;
+    // elog(WARNING, "Initialize worker: %d", MyProcPid);
+    ReadCoordinator        *coord   = (ReadCoordinator *) coordinate;
     ParquetFdwExecutionState   *festate;
 
-    coord = new(coordinate) ParallelCoordinator;
+    // coord = new(coordinate) ReadCoordinator;
     festate = (ParquetFdwExecutionState *) node->fdw_state;
     festate->set_coordinator(coord);
 }

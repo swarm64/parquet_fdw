@@ -14,7 +14,7 @@
 #include "Error.hpp"
 #include "FastAllocator.hpp"
 #include "Misc.hpp"
-#include "ParallelCoordinator.hpp"
+#include "ReadCoordinator.hpp"
 
 extern "C" {
 #include "access/attnum.h"
@@ -109,15 +109,12 @@ public:
 
     FastAllocator                  *allocator;
 
-    /* Coordinator for parallel query execution */
-    ParallelCoordinator            *coordinator;
-
     /* Wether object is properly initialized */
     bool     initialized;
 
     ParquetFdwReader(const char* file_path, const int reader_id)
         : filePath(file_path), reader_id(reader_id), row_group(-1), row(0), num_rows(0),
-          coordinator(NULL), initialized(false)
+          initialized(false)
     { }
 
     ~ParquetFdwReader()
@@ -133,7 +130,7 @@ public:
               bool use_threads,
               bool use_mmap);
 
-    bool read_next_rowgroup(TupleDesc tupleDesc);
+    void prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc);
     bool next(TupleTableSlot *slot, bool fake=false);
     void populate_slot(TupleTableSlot *slot, bool fake=false);
     void rescan(void);
@@ -175,12 +172,7 @@ public:
 
     void set_rowgroups_list(const std::vector<int> &rowgroups);
 
-    bool readAllRowGroups() const {
-        // TODO: fix size comparison
-        return row_group >= (int)rowgroups.size();
-    }
-
-    void set_coordinator(ParallelCoordinator* _coordinator) {
-        coordinator = _coordinator;
+    bool finishedReadingRowGroup() const {
+        return row >= num_rows;
     }
 };

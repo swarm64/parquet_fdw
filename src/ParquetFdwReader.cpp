@@ -14,6 +14,7 @@ extern "C" {
 #include "utils/memutils.h"
 #include "utils/lsyscache.h"
 #include "utils/timestamp.h"
+#include "miscadmin.h"
 }
 
 bool parquet_fdw_use_threads = true;
@@ -137,34 +138,13 @@ void ParquetFdwReader::open(const char *filename,
     this->allocator = new FastAllocator(cxt);
 }
 
-bool ParquetFdwReader::read_next_rowgroup(TupleDesc tupleDesc)
-{
-    ParallelCoordinator        *coord;
+void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc) {
     arrow::Status               status;
 
-    coord = this->coordinator;
-
-    /*
-     * Use atomic increment for parallel query or just regular one for single
-     * threaded execution.
-     */
-    if (coord)
-        this->row_group = coord->next_rowgroup.fetch_add(1, std::memory_order_relaxed);
-    else
-        this->row_group++;
-
-    /*
-     * row_group cannot be less than zero at this point so it is safe to cast
-     * it to unsigned int
-     */
-    if ((uint) this->row_group >= this->rowgroups.size())
-        return false;
-
-    int  rowgroup = this->rowgroups[this->row_group];
     auto rowgroup_meta = this->reader
                             ->parquet_reader()
                             ->metadata()
-                            ->RowGroup(rowgroup);
+                            ->RowGroup(rowGroupId);
 
     /* Determine which columns has null values */
     for (uint i = 0; i < this->map.size(); i++)
@@ -186,7 +166,7 @@ bool ParquetFdwReader::read_next_rowgroup(TupleDesc tupleDesc)
     }
 
     status = this->reader
-        ->RowGroup(rowgroup)
+        ->RowGroup(rowGroupId)
         ->ReadTable(this->indices, &this->table);
 
     if (!status.ok())
@@ -210,26 +190,32 @@ bool ParquetFdwReader::read_next_rowgroup(TupleDesc tupleDesc)
         }
     }
 
+    this->row_group = rowGroupId;
     this->row = 0;
     this->num_rows = this->table->num_rows();
-
-    return true;
 }
 
 bool ParquetFdwReader::next(TupleTableSlot *slot, bool fake)
 {
     allocator->recycle();
 
-    if (this->row >= this->num_rows)
-    {
-        /* Read next row group */
-        if (!this->read_next_rowgroup(slot->tts_tupleDescriptor))
-            return false;
-
+    if (this->row == 0) {
         /* Lookup cast funcs */
         if (!this->initialized)
             this->initialize_castfuncs(slot->tts_tupleDescriptor);
     }
+    /*
+    if (this->row >= this->num_rows)
+    {
+        // Read next row group
+        if (!this->read_next_rowgroup(slot->tts_tupleDescriptor))
+            return false;
+
+        // Lookup cast funcs
+        if (!this->initialized)
+            this->initialize_castfuncs(slot->tts_tupleDescriptor);
+    }
+    */
 
     this->populate_slot(slot, fake);
     this->row++;

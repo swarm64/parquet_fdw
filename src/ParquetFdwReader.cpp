@@ -51,13 +51,13 @@ void ParquetFdwReader::open(const char *filename,
                     parquet::ParquetFileReader::OpenFile(filename, use_mmap),
                     &reader);
     if (!status.ok())
-        throw Error("failed to open Parquet file %s",
-                             status.message().c_str());
+        elog(ERROR, "Failed to open parquet file: %s", status.message().c_str());
+
     this->reader = std::move(reader);
 
     auto    schema = this->reader->parquet_reader()->metadata()->schema();
     if (!parquet::arrow::FromParquetSchema(schema, props, &this->schema).ok())
-        throw Error("error reading parquet schema");
+        elog(ERROR, "Error reading parquet schema.");
 
     /* Enable parallel columns decoding/decompression if needed */
     this->reader->set_use_threads(use_threads && parquet_fdw_use_threads);
@@ -126,7 +126,8 @@ void ParquetFdwReader::open(const char *filename,
                 PG_END_TRY();
 
                 if (error)
-                    throw Error("failed to get the element type of '%s' column", pg_colname);
+                    elog(ERROR, "Failed to get the element type of column %s", pg_colname);
+
                 this->pg_types.push_back(typinfo);
 
                 break;
@@ -429,7 +430,7 @@ ParquetFdwReader::read_primitive_type(arrow::Array *array,
         }
         /* TODO: add other types */
         default:
-            throw Error("parquet_fdw: unsupported column type: %d", type_id);
+            elog(ERROR, "Unsupported column type: %d", type_id);
     }
 
     /* Call cast function if needed */
@@ -584,7 +585,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         dst_type = TupleDescAttr(tupleDesc, i)->atttypid;
 
         if (!OidIsValid(src_type))
-            throw Error("unsupported column type: %s", type->name().c_str());
+            elog(ERROR, "Unsupported column type: %s", type->name().c_str());
 
         /* Find underlying type of array */
         dst_is_array = type_is_array(dst_type);
@@ -594,11 +595,11 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         /* Make sure both types are compatible */
         if (src_is_list != dst_is_array)
         {
-            throw Error("incompatible types in column \"%s\"; %s",
-                        this->table->field(arrow_col)->name().c_str(),
-                        src_is_list ?
-                            "parquet column is of type list while postgres type is scalar" :
-                            "parquet column is of scalar type while postgres type is array");
+            const auto column = this->table->field(arrow_col)->name().c_str();
+            if (src_is_list)
+                elog(ERROR, "Incompatible types in column %s: list vs scalar", column);
+            else
+                elog(ERROR, "Incompatible types in column %s: scalar vs array", column);
         }
 
         PG_TRY();
@@ -652,7 +653,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         }
         PG_END_TRY();
         if (error)
-            throw std::runtime_error(errstr);
+            elog(ERROR, "%s", errstr);
     }
     this->initialized = true;
 }

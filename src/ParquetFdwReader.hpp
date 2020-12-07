@@ -11,7 +11,6 @@
 #include <filesystem>
 #include <set>
 
-#include "Error.hpp"
 #include "FastAllocator.hpp"
 #include "Misc.hpp"
 #include "ReadCoordinator.hpp"

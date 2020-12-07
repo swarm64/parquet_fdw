@@ -79,7 +79,6 @@ extern "C"
 
 
 #include "src/Conversion.hpp"
-#include "src/Error.hpp"
 #include "src/Helpers.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
@@ -426,9 +425,7 @@ extract_rowgroups_list(const char *filename,
                 &reader);
 
         if (!status.ok())
-            throw Error("failed to open Parquet file %s",
-                             status.message().c_str());
-
+            elog(ERROR, "Could not open parquet file %s", status.message().c_str());
 
         auto meta = reader->parquet_reader()->metadata();
         parquet::ArrowReaderProperties  props;
@@ -436,7 +433,7 @@ extract_rowgroups_list(const char *filename,
 
         status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
         if (!status.ok())
-            throw Error("failed to convert from parquet schema: %s", status.message().c_str());
+            elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
 
         /* Check each row group whether it matches the filters */
         for (int r = 0; r < reader->num_row_groups(); r++)
@@ -504,7 +501,7 @@ extract_rowgroups_list(const char *filename,
                         }
                         PG_END_TRY();
                         if (error)
-                            throw Error("row group filter match failed: %s", errstr);
+                            elog(ERROR, "Row group filter match failed: %s", errstr);
                         break;
                     }
                 }  /* loop over columns */
@@ -555,15 +552,14 @@ extract_parquet_fields(const char *path) noexcept
                     parquet::ParquetFileReader::OpenFile(path, false),
                     &reader);
         if (!status.ok())
-            throw Error("failed to open Parquet file %s",
-                                 status.message().c_str());
+            elog(ERROR, "Failed to open parquet file %s", status.message().c_str());
 
         auto        meta = reader->parquet_reader()->metadata();
         parquet::ArrowReaderProperties props;
         FieldInfo  *fields;
 
         if (!parquet::arrow::FromParquetSchema(meta->schema(), props, &schema).ok())
-            throw std::runtime_error("error reading parquet schema");
+            elog(ERROR, "Error when reading parquet schema.");
 
         fields = (FieldInfo *) exc_palloc(sizeof(FieldInfo) * schema->num_fields());
 
@@ -584,7 +580,7 @@ extract_parquet_fields(const char *path) noexcept
                 bool    error = false;
 
                 if (type->fields().size() != 1)
-                    throw std::runtime_error("lists of structs are not supported");
+                    elog(ERROR, "Lists of structs are not supported.");
 
                 subtype_id = get_arrow_list_elem_type(type.get());
                 pg_subtype = to_postgres_type(subtype_id);
@@ -601,7 +597,7 @@ extract_parquet_fields(const char *path) noexcept
                 PG_END_TRY();
 
                 if (error)
-                    throw std::runtime_error("failed to get the type of array elements");
+                    elog(ERROR, "Failed to get type of array elements");
             }
             else
             {
@@ -611,8 +607,7 @@ extract_parquet_fields(const char *path) noexcept
             if (pg_type != InvalidOid)
             {
                 if (field->name().length() > 63)
-                    throw Error("field name '%s' in '%s' is too long",
-                                field->name().c_str(), path);
+                    elog(ERROR, "Field name %s in %s is too long", field->name().c_str(), path);
 
                 memcpy(fields->name, field->name().c_str(), field->name().length() + 1);
                 fields->oid = pg_type;
@@ -620,8 +615,8 @@ extract_parquet_fields(const char *path) noexcept
             }
             else
             {
-                throw Error("cannot convert field '%s' of type '%s' in %s",
-                            field->name().c_str(), type->name().c_str(), path);
+                elog(ERROR, "Cannot convert field %s of type %s in %s",
+                     field->name().c_str(), type->name().c_str(), path);
             }
         }
     }
@@ -1512,8 +1507,8 @@ parquetAcquireSampleRowsFunc(Relation relation, int elevel,
                         parquet::ParquetFileReader::OpenFile(filename, false),
                         &reader);
             if (!status.ok())
-                throw Error("failed to open Parquet file: %s",
-                                     status.message().c_str());
+                elog(ERROR, "Failed to open parquet file: %s", status.message().c_str());
+
             auto meta = reader->parquet_reader()->metadata();
             num_rows += meta->num_rows();
 

@@ -23,7 +23,7 @@ EXTRA_CLEAN = sql/parquet_fdw.sql expected/parquet_fdw.out
 PG_CONFIG = /usr/pgsql-12/bin/pg_config
 
 # parquet_impl.cpp requires C++ 11.
-override PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors -O0 -g
+override PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 

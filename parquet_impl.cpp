@@ -441,75 +441,71 @@ extract_rowgroups_list(const char *filename,
             bool match = true;
             auto rowgroup = meta->RowGroup(r);
 
-            for (auto it = filters.begin(); it != filters.end(); it++)
-            {
-                RowGroupFilter &filter = *it;
-                AttrNumber      attnum;
-                const char     *attname;
+            for (auto &filter : filters) {
+              AttrNumber attnum;
+              const char *attname;
 
-                attnum = filter.attnum - 1;
-                attname = NameStr(TupleDescAttr(tupleDesc, attnum)->attname);
+              attnum = filter.attnum - 1;
+              attname = NameStr(TupleDescAttr(tupleDesc, attnum)->attname);
 
-                /*
-                 * Search for the column with the same name as filtered attribute
-                 */
-                for (int k = 0; k < rowgroup->num_columns(); k++)
-                {
-                    auto    column = rowgroup->ColumnChunk(k);
-                    std::vector<std::string> path = column->path_in_schema()->ToDotVector();
+              /*
+               * Search for the column with the same name as filtered attribute
+               */
+              for (int k = 0; k < rowgroup->num_columns(); k++) {
+                auto column = rowgroup->ColumnChunk(k);
+                std::vector<std::string> path =
+                    column->path_in_schema()->ToDotVector();
 
-                    if (strcmp(attname, path[0].c_str()) == 0)
-                    {
-                        /* Found it! */
-                        std::shared_ptr<parquet::Statistics>  stats;
-                        std::shared_ptr<arrow::Field>       field;
-                        std::shared_ptr<arrow::DataType>    type;
-                        MemoryContext   ccxt = CurrentMemoryContext;
-                        bool            error = false;
-                        char            errstr[ERROR_STR_LEN];
+                if (strcmp(attname, path[0].c_str()) == 0) {
+                  /* Found it! */
+                  std::shared_ptr<parquet::Statistics> stats;
+                  std::shared_ptr<arrow::Field> field;
+                  std::shared_ptr<arrow::DataType> type;
+                  MemoryContext ccxt = CurrentMemoryContext;
+                  bool error = false;
+                  char errstr[ERROR_STR_LEN];
 
-                        stats = column->statistics();
+                  stats = column->statistics();
 
-                        /* Convert to arrow field to get appropriate type */
-                        field = schema->field(k);
-                        type = field->type();
+                  /* Convert to arrow field to get appropriate type */
+                  field = schema->field(k);
+                  type = field->type();
 
-                        PG_TRY();
-                        {
-                            /*
-                             * If at least one filter doesn't match rowgroup exclude
-                             * the current row group and proceed with the next one.
-                             */
-                            if (stats &&
-                                !row_group_matches_filter(stats.get(), type.get(), &filter))
-                            {
-                                match = false;
-                                elog(DEBUG1, "parquet_fdw: skip rowgroup %d", r + 1);
-                            }
-                        }
-                        PG_CATCH();
-                        {
-                            ErrorData *errdata;
-
-                            MemoryContextSwitchTo(ccxt);
-                            error = true;
-                            errdata = CopyErrorData();
-                            FlushErrorState();
-
-                            strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
-                            FreeErrorData(errdata);
-                        }
-                        PG_END_TRY();
-                        if (error)
-                            elog(ERROR, "Row group filter match failed: %s", errstr);
-                        break;
+                  PG_TRY();
+                  {
+                    /*
+                     * If at least one filter doesn't match rowgroup exclude
+                     * the current row group and proceed with the next one.
+                     */
+                    if (stats && !row_group_matches_filter(
+                                     stats.get(), type.get(), &filter)) {
+                      match = false;
+                      elog(DEBUG1, "parquet_fdw: skip rowgroup %d", r + 1);
                     }
-                }  /* loop over columns */
+                  }
+                  PG_CATCH();
+                  {
+                    ErrorData *errdata;
 
-                if (!match)
-                    break;
+                    MemoryContextSwitchTo(ccxt);
+                    error = true;
+                    errdata = CopyErrorData();
+                    FlushErrorState();
 
-            }  /* loop over filters */
+                    strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
+                    FreeErrorData(errdata);
+                  }
+                  PG_END_TRY();
+                  if (error)
+                    elog(ERROR, "Row group filter match failed: %s", errstr);
+                  break;
+                }
+              } /* loop over columns */
+
+              if (!match)
+                break;
+
+            } /* loop over filters */
 
             /* All the filters match this rowgroup */
             if (match)
@@ -721,12 +717,11 @@ parse_attributes_list(char *start, Oid relid)
     const char *delim = " ";
     AttrNumber attnum;
 
-    while ((token = strtok(start, delim)) != NULL)
-    {
-        if ((attnum = get_attnum(relid, token)) == InvalidAttrNumber)
-            elog(ERROR, "paruqet_fdw: invalid attribute name '%s'", token);
-        attrs = lappend_int(attrs, attnum);
-        start = NULL;
+    while ((token = strtok(start, delim)) != nullptr) {
+      if ((attnum = get_attnum(relid, token)) == InvalidAttrNumber)
+        elog(ERROR, "paruqet_fdw: invalid attribute name '%s'", token);
+      attrs = lappend_int(attrs, attnum);
+      start = nullptr;
     }
 
     return attrs;
@@ -772,19 +767,18 @@ OidFunctionCall1NullableArg(Oid functionId, Datum arg, bool argisnull)
 static List *
 get_filenames_from_userfunc(const char *funcname, const char *funcarg)
 {
-    Jsonb      *j = NULL;
-    Oid         funcid;
-    List       *f = stringToQualifiedNameList(funcname);
-    Datum       filenames;
-    Oid         jsonboid = JSONBOID;
-    Datum      *values;
-    bool       *nulls;
-    int         num;
-    List       *res = NIL;
-    ArrayType  *arr;
+  Jsonb *j = nullptr;
+  Oid funcid;
+  List *f = stringToQualifiedNameList(funcname);
+  Datum filenames;
+  Oid jsonboid = JSONBOID;
+  Datum *values;
+  bool *nulls;
+  int num;
+  List *res = NIL;
+  ArrayType *arr;
 
-    if (funcarg)
-    {
+  if (funcarg) {
 #if PG_VERSION_NUM < 110000
         j = DatumGetJsonb(DirectFunctionCall1(jsonb_in, CStringGetDatum(funcarg)));
 #else
@@ -793,7 +787,8 @@ get_filenames_from_userfunc(const char *funcname, const char *funcarg)
     }
 
     funcid = LookupFuncName(f, 1, &jsonboid, false);
-    filenames = OidFunctionCall1NullableArg(funcid, (Datum) j, funcarg == NULL);
+    filenames =
+        OidFunctionCall1NullableArg(funcid, (Datum)j, funcarg == nullptr);
 
     arr = DatumGetArrayTypeP(filenames);
     if (ARR_ELEMTYPE(arr) != TEXTOID)
@@ -824,8 +819,8 @@ get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
 {
 	ForeignTable *table;
     ListCell     *lc;
-    char         *funcname = NULL;
-    char         *funcarg = NULL;
+    char *funcname = nullptr;
+    char *funcarg = nullptr;
 
     fdw_private->use_mmap = false;
     fdw_private->use_threads = false;
@@ -899,12 +894,9 @@ estimate_costs(PlannerInfo *root, RelOptInfo *baserel, Cost *startup_cost,
     /* Use statistics if we have it */
     if (baserel->tuples)
     {
-        ntuples = baserel->tuples *
-            clauselist_selectivity(root,
-                                   baserel->baserestrictinfo,
-                                   0,
-                                   JOIN_INNER,
-                                   NULL);
+      ntuples = baserel->tuples *
+                clauselist_selectivity(root, baserel->baserestrictinfo, 0,
+                                       JOIN_INNER, nullptr);
 
     }
     else
@@ -1066,14 +1058,11 @@ parquetGetForeignPaths(PlannerInfo *root,
         var = makeVar(baserel->relid, attnum, typid, typmod, collid, 0);
 
         /* Lookup sorting operator for the attribute type */
-        get_sort_group_operators(typid,
-                                 true, false, false,
-                                 &sort_op, NULL, NULL,
-                                 NULL);
+        get_sort_group_operators(typid, true, false, false, &sort_op, nullptr,
+                                 nullptr, nullptr);
 
-        attr_pathkey = build_expression_pathkey(root, (Expr *) var, NULL,
-                                                sort_op, baserel->relids,
-                                                true);
+        attr_pathkey = build_expression_pathkey(root, (Expr *)var, nullptr,
+                                                sort_op, baserel->relids, true);
         pathkeys = list_concat(pathkeys, attr_pathkey);
     }
 
@@ -1109,16 +1098,13 @@ parquetGetForeignPaths(PlannerInfo *root,
     }
     */
 
-	foreign_path = (Path *) create_foreignscan_path(root, baserel,
-                                                    NULL,	/* default pathtarget */
-                                                    baserel->rows,
-                                                    startup_cost,
-                                                    total_cost,
-                                                    NULL,   /* no pathkeys */
-                                                    NULL,	/* no outer rel either */
-                                                    NULL,	/* no extra plan */
-                                                    (List *) fdw_private);
-	add_path(baserel, (Path *) foreign_path);
+    foreign_path = (Path *)create_foreignscan_path(
+        root, baserel, nullptr, /* default pathtarget */
+        baserel->rows, startup_cost, total_cost, nullptr, /* no pathkeys */
+        nullptr, /* no outer rel either */
+        nullptr, /* no extra plan */
+        (List *)fdw_private);
+    add_path(baserel, (Path *)foreign_path);
 
     if (baserel->consider_parallel > 0)
     {
@@ -1128,16 +1114,12 @@ parquetGetForeignPaths(PlannerInfo *root,
         memcpy(private_parallel, fdw_private, sizeof(ParquetFdwPlanState));
         private_parallel->type = RT_MULTI;
 
-        Path *parallel_path = (Path *)
-                 create_foreignscan_path(root, baserel,
-                                         NULL,	/* default pathtarget */
-                                         baserel->rows,
-                                         startup_cost,
-                                         total_cost,
-                                         pathkeys,
-                                         NULL,	/* no outer rel either */
-                                         NULL,	/* no extra plan */
-                                         (List *) private_parallel);
+        Path *parallel_path = (Path *)create_foreignscan_path(
+            root, baserel, nullptr, /* default pathtarget */
+            baserel->rows, startup_cost, total_cost, pathkeys,
+            nullptr, /* no outer rel either */
+            nullptr, /* no extra plan */
+            (List *)private_parallel);
 
         int num_workers = max_parallel_workers_per_gather;
 
@@ -1303,10 +1285,8 @@ parquetBeginForeignScan(ForeignScanState *node, int eflags)
         sort_key.ssup_attno = attr;
         sort_key.abbreviate = false;
 
-        get_sort_group_operators(typid,
-                                 true, false, false,
-                                 &sort_op, NULL, NULL,
-                                 NULL);
+        get_sort_group_operators(typid, true, false, false, &sort_op, nullptr,
+                                 nullptr, nullptr);
 
         PrepareSortSupportFromOrderingOp(sort_op, &sort_key);
 
@@ -1733,67 +1713,59 @@ parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
              strerror(e));
     }
 
-    while ((f = readdir(d)) != NULL)
-    {
+    while ((f = readdir(d)) != nullptr) {
 
-        /* TODO: use lstat if d_type == DT_UNKNOWN */
-        if (f->d_type == DT_REG)
-        {
-            ListCell   *lc;
-            bool        skip = false;
-            List       *fields;
-            char       *filename = pstrdup(f->d_name);
-            char       *path;
-            char       *query;
+      /* TODO: use lstat if d_type == DT_UNKNOWN */
+      if (f->d_type == DT_REG) {
+        ListCell *lc;
+        bool skip = false;
+        List *fields;
+        char *filename = pstrdup(f->d_name);
+        char *path;
+        char *query;
 
-            path = psprintf("%s/%s", stmt->remote_schema, filename);
+        path = psprintf("%s/%s", stmt->remote_schema, filename);
 
-            /* check that file extension is "parquet" */
-            char *ext = strrchr(filename, '.');
+        /* check that file extension is "parquet" */
+        char *ext = strrchr(filename, '.');
 
-            if (ext && strcmp(ext + 1, "parquet") != 0)
-                continue;
+        if (ext && strcmp(ext + 1, "parquet") != 0)
+          continue;
 
-            /*
-             * Set terminal symbol to be able to run strcmp on filename
-             * without file extension
-             */
-            *ext = '\0';
+        /*
+         * Set terminal symbol to be able to run strcmp on filename
+         * without file extension
+         */
+        *ext = '\0';
 
-            foreach (lc, stmt->table_list)
-            {
-                RangeVar *rv = (RangeVar *) lfirst(lc);
+        foreach (lc, stmt->table_list) {
+          RangeVar *rv = (RangeVar *)lfirst(lc);
 
-                switch (stmt->list_type)
-                {
-                    case FDW_IMPORT_SCHEMA_LIMIT_TO:
-                        if (strcmp(filename, rv->relname) != 0)
-                        {
-                            skip = true;
-                            break;
-                        }
-                        break;
-                    case FDW_IMPORT_SCHEMA_EXCEPT:
-                        if (strcmp(filename, rv->relname) == 0)
-                        {
-                            skip = true;
-                            break;
-                        }
-                        break;
-                    default:
-                        ;
-                }
+          switch (stmt->list_type) {
+          case FDW_IMPORT_SCHEMA_LIMIT_TO:
+            if (strcmp(filename, rv->relname) != 0) {
+              skip = true;
+              break;
             }
-            if (skip)
-                continue;
-
-            fields = extract_parquet_fields(path);
-            query = create_foreign_table_query(filename, stmt->local_schema,
-                                               stmt->server_name, &path, 1,
-                                               fields, stmt->options);
-            cmds = lappend(cmds, query);
+            break;
+          case FDW_IMPORT_SCHEMA_EXCEPT:
+            if (strcmp(filename, rv->relname) == 0) {
+              skip = true;
+              break;
+            }
+            break;
+          default:;
+          }
         }
+        if (skip)
+          continue;
 
+        fields = extract_parquet_fields(path);
+        query = create_foreign_table_query(filename, stmt->local_schema,
+                                           stmt->server_name, &path, 1, fields,
+                                           stmt->options);
+        cmds = lappend(cmds, query);
+      }
     }
     FreeDir(d);
 
@@ -1874,7 +1846,7 @@ parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
             ;  /* do nothing */
         else if (strcmp(def->defname, "batch_size") == 0)
             /* check that int value is valid */
-            strtol(defGetString(def), NULL, 10);
+            strtol(defGetString(def), nullptr, 10);
         else if (strcmp(def->defname, "use_mmap") == 0)
         {
             /* Check that bool value is valid */
@@ -2114,14 +2086,18 @@ import_parquet(PG_FUNCTION_ARGS)
     Jsonb      *arg;
     Jsonb      *options;
 
-    tablename = PG_ARGISNULL(0) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(0));
-    schemaname = PG_ARGISNULL(1) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(1));
-    servername = PG_ARGISNULL(2) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(2));
+    tablename =
+        PG_ARGISNULL(0) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(0));
+    schemaname =
+        PG_ARGISNULL(1) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(1));
+    servername =
+        PG_ARGISNULL(2) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(2));
     funcid = PG_ARGISNULL(3) ? InvalidOid : PG_GETARG_OID(3);
-    arg = PG_ARGISNULL(4) ? NULL : PG_GETARG_JSONB_P(4);
-    options = PG_ARGISNULL(5) ? NULL : PG_GETARG_JSONB_P(5);
+    arg = PG_ARGISNULL(4) ? nullptr : PG_GETARG_JSONB_P(4);
+    options = PG_ARGISNULL(5) ? nullptr : PG_GETARG_JSONB_P(5);
 
-    import_parquet_internal(tablename, schemaname, servername, NULL, funcid, arg, options);
+    import_parquet_internal(tablename, schemaname, servername, nullptr, funcid,
+                            arg, options);
 
     PG_RETURN_VOID();
 }
@@ -2140,14 +2116,17 @@ import_parquet_with_attrs(PG_FUNCTION_ARGS)
     Jsonb      *options;
     List       *fields;
 
-    tablename = PG_ARGISNULL(0) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(0));
-    schemaname = PG_ARGISNULL(1) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(1));
-    servername = PG_ARGISNULL(2) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(2));
-    attnames = PG_ARGISNULL(3) ? NULL : PG_GETARG_ARRAYTYPE_P(3);
-    atttypes = PG_ARGISNULL(4) ? NULL : PG_GETARG_ARRAYTYPE_P(4);
+    tablename =
+        PG_ARGISNULL(0) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(0));
+    schemaname =
+        PG_ARGISNULL(1) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(1));
+    servername =
+        PG_ARGISNULL(2) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(2));
+    attnames = PG_ARGISNULL(3) ? nullptr : PG_GETARG_ARRAYTYPE_P(3);
+    atttypes = PG_ARGISNULL(4) ? nullptr : PG_GETARG_ARRAYTYPE_P(4);
     funcid = PG_ARGISNULL(5) ? InvalidOid : PG_GETARG_OID(5);
-    arg = PG_ARGISNULL(6) ? NULL : PG_GETARG_JSONB_P(6);
-    options = PG_ARGISNULL(7) ? NULL : PG_GETARG_JSONB_P(7);
+    arg = PG_ARGISNULL(6) ? nullptr : PG_GETARG_JSONB_P(6);
+    options = PG_ARGISNULL(7) ? nullptr : PG_GETARG_JSONB_P(7);
 
     fields = array_to_fields_list(attnames, atttypes);
 

@@ -65,8 +65,8 @@ void ParquetFdwExecutionState::add_file(const char *filename, List *rowgroups) {
     ListCell       *lc;
 
     fr.filename = filename;
-    if (rowgroups == 0)
-        fr.rowgroups.push_back(0);
+    if (rowgroups == nullptr)
+      fr.rowgroups.push_back(0);
     else {
         foreach (lc, rowgroups)
             fr.rowgroups.push_back(lfirst_int(lc));

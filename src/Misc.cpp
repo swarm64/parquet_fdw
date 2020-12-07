@@ -26,8 +26,8 @@ exc_palloc(Size size)
 	context->isReset = false;
 
 	ret = context->methods->alloc(context, size);
-	if (unlikely(ret == NULL))
-		throw std::bad_alloc();
+        if (unlikely(ret == nullptr))
+          throw std::bad_alloc();
 
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 

@@ -148,22 +148,18 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
                             ->RowGroup(rowGroupId);
 
     /* Determine which columns has null values */
-    for (uint i = 0; i < this->map.size(); i++)
-    {
-        std::shared_ptr<parquet::Statistics>  stats;
-        int arrow_col = this->map[i];
+    for (int arrow_col : this->map) {
+      std::shared_ptr<parquet::Statistics> stats;
+      if (arrow_col < 0)
+        continue;
 
-        if (arrow_col < 0)
-            continue;
+      stats =
+          rowgroup_meta->ColumnChunk(this->indices[arrow_col])->statistics();
 
-        stats = rowgroup_meta
-            ->ColumnChunk(this->indices[arrow_col])
-            ->statistics();
-
-        if (stats)
-            this->has_nulls[arrow_col] = (stats->null_count() > 0);
-        else
-            this->has_nulls[arrow_col] = true;
+      if (stats)
+        this->has_nulls[arrow_col] = (stats->null_count() > 0);
+      else
+        this->has_nulls[arrow_col] = true;
     }
 
     status = this->reader
@@ -434,32 +430,29 @@ ParquetFdwReader::read_primitive_type(arrow::Array *array,
     }
 
     /* Call cast function if needed */
-    if (castfunc != NULL)
-    {
-        MemoryContext   ccxt = CurrentMemoryContext;
-        bool            error = false;
-        Datum           res;
-        char            errstr[ERROR_STR_LEN];
+    if (castfunc != nullptr) {
+      MemoryContext ccxt = CurrentMemoryContext;
+      bool error = false;
+      Datum res;
+      char errstr[ERROR_STR_LEN];
 
-        PG_TRY();
-        {
-            res = FunctionCall1(castfunc, res);
-        }
-        PG_CATCH();
-        {
-            ErrorData *errdata;
+      PG_TRY();
+      { res = FunctionCall1(castfunc, res); }
+      PG_CATCH();
+      {
+        ErrorData *errdata;
 
-            MemoryContextSwitchTo(ccxt);
-            error = true;
-            errdata = CopyErrorData();
-            FlushErrorState();
+        MemoryContextSwitchTo(ccxt);
+        error = true;
+        errdata = CopyErrorData();
+        FlushErrorState();
 
-            strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
-            FreeErrorData(errdata);
-        }
-        PG_END_TRY();
-        if (error)
-            throw std::runtime_error(errstr);
+        strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
+        FreeErrorData(errdata);
+      }
+      PG_END_TRY();
+      if (error)
+        throw std::runtime_error(errstr);
     }
 
     return res;
@@ -477,7 +470,7 @@ ParquetFdwReader::nested_list_get_datum(arrow::Array *array, int arrow_type,
     MemoryContext oldcxt;
     ArrayType  *res;
     Datum      *values;
-    bool       *nulls = NULL;
+    bool *nulls = nullptr;
     int         dims[1];
     int         lbs[1];
     bool        error = false;
@@ -563,7 +556,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         if (this->map[i] < 0)
         {
             /* Null column */
-            this->castfuncs[i] = NULL;
+            this->castfuncs[i] = nullptr;
             continue;
         }
 
@@ -606,7 +599,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         {
             if (IsBinaryCoercible(src_type, dst_type))
             {
-                this->castfuncs[i] = NULL;
+              this->castfuncs[i] = nullptr;
             }
             else
             {
@@ -630,7 +623,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
                     case COERCION_PATH_COERCEVIAIO:  /* TODO: double check that we
                                                       * shouldn't do anything here*/
                         /* Cast is not needed */
-                        this->castfuncs[i] = NULL;
+                        this->castfuncs[i] = nullptr;
                         break;
                     default:
                         elog(ERROR, "cast function to %s ('%s' column) is not found",

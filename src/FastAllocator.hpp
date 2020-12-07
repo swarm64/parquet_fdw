@@ -23,9 +23,9 @@ public:
         : garbage_segments()
     {
         this->segments_cxt = cxt;
-        this->segment_start_ptr = NULL;
-        this->segment_cur_ptr = NULL;
-        this->segment_last_ptr = NULL;
+        this->segment_start_ptr = nullptr;
+        this->segment_cur_ptr = nullptr;
+        this->segment_last_ptr = nullptr;
     }
 
     /*

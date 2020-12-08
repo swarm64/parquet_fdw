@@ -1,10 +1,9 @@
 MODULE_big = parquet_fdw
 OBJS = parquet_impl.o parquet_fdw.o \
-	   src/Functions.o \
 	   src/Misc.o \
 	   src/ParquetFdwReader.o \
 	   src/ParquetFdwExecutionState.o \
-	   src/MultifileMergeExecutionState.o
+	   src/functions/ConvertCsvToParquet.o
 
 PGFILEDESC = "parquet_fdw - foreign data wrapper for parquet"
 

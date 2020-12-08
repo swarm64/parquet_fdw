@@ -1,5 +1,5 @@
-#include "fmgr.h"
 #include "postgres.h"
+#include "fmgr.h"
 
 #include "access/reloptions.h"
 #include "catalog/pg_foreign_table.h"

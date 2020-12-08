@@ -78,9 +78,9 @@ extern "C" {
 
 #include "src/Conversion.hpp"
 #include "src/Helpers.hpp"
-#include "src/MultifileMergeExecutionState.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/ParquetFdwReader.hpp"
+#include "src/functions/ConvertCsvToParquet.hpp"
 
 /* from costsize.c */
 #define LOG2(x) (log(x) / 0.693147180559945)
@@ -2053,5 +2053,27 @@ Datum import_parquet_with_attrs(PG_FUNCTION_ARGS)
     import_parquet_internal(tablename, schemaname, servername, fields, funcid, arg, options);
 
     PG_RETURN_VOID();
+}
+
+PG_FUNCTION_INFO_V1(convert_csv_to_parquet);
+Datum convert_csv_to_parquet(PG_FUNCTION_ARGS)
+{
+    char *src_filepath;
+    char *target_filepath;
+    ArrayType *field_names;
+    char *compression_type;
+
+    src_filepath =
+        PG_ARGISNULL(0) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(0));
+    target_filepath =
+        PG_ARGISNULL(1) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(1));
+    field_names = PG_ARGISNULL(2) ? NULL : PG_GETARG_ARRAYTYPE_P(2);
+    compression_type =
+        PG_ARGISNULL(3) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(3));
+
+    const int64_t numRows = ConvertCsvToParquet()
+        .convert(src_filepath, target_filepath, compression_type, field_names);
+
+    PG_RETURN_INT64(numRows);
 }
 }

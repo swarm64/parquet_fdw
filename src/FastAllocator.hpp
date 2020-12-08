@@ -7,7 +7,6 @@ extern "C" {
 
 #include "Misc.hpp"
 
-
 class FastAllocator
 {
 private:

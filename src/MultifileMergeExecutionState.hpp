@@ -15,6 +15,7 @@ class MultifileMergeExecutionState : public ParquetFdwExecutionState // ParquetF
         TupleTableSlot *slot;
     };
     using BinHeap = std::vector<FileSlot>;
+
 private:
     std::list<SortSupportData> sort_keys;
 
@@ -26,8 +27,8 @@ private:
      * heap is rebuilt to sustain its properties. The idea is taken from
      * nodeGatherMerge.c in PostgreSQL but reimplemented using STL.
      */
-    BinHeap             slots;
-    bool                slots_initialized;
+    BinHeap slots;
+    bool    slots_initialized;
 
 private:
     /*
@@ -38,16 +39,16 @@ private:
     bool compare_slots(FileSlot &a, FileSlot &b);
 
 public:
-    MultifileMergeExecutionState(MemoryContext cxt,
-                                 TupleDesc tupleDesc,
-                                 std::set<int> attrs_used,
+    MultifileMergeExecutionState(MemoryContext              cxt,
+                                 TupleDesc                  tupleDesc,
+                                 std::set<int>              attrs_used,
                                  std::list<SortSupportData> sort_keys,
-                                 bool use_threads,
-                                 bool use_mmap);
+                                 bool                       use_threads,
+                                 bool                       use_mmap);
 
     ~MultifileMergeExecutionState();
 
-    bool next(TupleTableSlot *slot, bool fake=false);
+    bool next(TupleTableSlot *slot, bool fake = false);
     void rescan();
     void set_coordinator(ReadCoordinator *coord);
 };

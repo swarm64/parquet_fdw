@@ -3,7 +3,7 @@
 
 bool MultifileMergeExecutionState::compare_slots(FileSlot &a, FileSlot &b)
 {
-    bool    error = false;
+    bool error = false;
 
     PG_TRY();
     {
@@ -13,21 +13,17 @@ bool MultifileMergeExecutionState::compare_slots(FileSlot &a, FileSlot &b)
         Assert(!TupIsNull(s1));
         Assert(!TupIsNull(s2));
 
-        for (auto sort_key: sort_keys)
+        for (auto sort_key : sort_keys)
         {
-            AttrNumber  attno = sort_key.ssup_attno;
-            Datum       datum1,
-                        datum2;
-            bool        isNull1,
-                        isNull2;
-            int         compare;
+            AttrNumber attno = sort_key.ssup_attno;
+            Datum      datum1, datum2;
+            bool       isNull1, isNull2;
+            int        compare;
 
             datum1 = slot_getattr(s1, attno, &isNull1);
             datum2 = slot_getattr(s2, attno, &isNull2);
 
-            compare = ApplySortComparator(datum1, isNull1,
-                                          datum2, isNull2,
-                                          &sort_key);
+            compare = ApplySortComparator(datum1, isNull1, datum2, isNull2, &sort_key);
             if (compare != 0)
                 return (compare > 0);
         }
@@ -44,21 +40,22 @@ bool MultifileMergeExecutionState::compare_slots(FileSlot &a, FileSlot &b)
     return false;
 }
 
-MultifileMergeExecutionState::MultifileMergeExecutionState(MemoryContext cxt,
-                             TupleDesc tupleDesc,
-                             std::set<int> attrs_used,
-                             std::list<SortSupportData> sort_keys,
-                             bool use_threads,
-                             bool use_mmap)
-    : ParquetFdwExecutionState(cxt, tupleDesc, attrs_used, use_threads, use_mmap)
-      , slots_initialized(false)
-{}
+MultifileMergeExecutionState::MultifileMergeExecutionState(MemoryContext              cxt,
+                                                           TupleDesc                  tupleDesc,
+                                                           std::set<int>              attrs_used,
+                                                           std::list<SortSupportData> sort_keys,
+                                                           bool                       use_threads,
+                                                           bool                       use_mmap)
+    : ParquetFdwExecutionState(cxt, tupleDesc, attrs_used, use_threads, use_mmap),
+      slots_initialized(false)
+{
+}
 
 MultifileMergeExecutionState::~MultifileMergeExecutionState()
 {
 #if PG_VERSION_NUM < 110000
     /* Destroy tuple slots if any */
-    for (auto it: slots)
+    for (auto it : slots)
         ExecDropSingleTupleTableSlot(it.slot);
 #endif
 
@@ -68,17 +65,17 @@ MultifileMergeExecutionState::~MultifileMergeExecutionState()
 bool MultifileMergeExecutionState::next(TupleTableSlot *slot, bool fake)
 {
     bool error = false;
-    auto cmp = [this] (FileSlot &a, FileSlot &b) { return compare_slots(a, b); };
+    auto cmp   = [this](FileSlot &a, FileSlot &b) { return compare_slots(a, b); };
 
     if (unlikely(!slots_initialized))
     {
         /* Initialize binary heap on the first run */
         int i = 0;
 
-        for (auto reader: readers)
+        for (auto reader : readers)
         {
-            FileSlot    fs;
-            bool        error = false;
+            FileSlot fs;
+            bool     error = false;
 
             PG_TRY();
             {

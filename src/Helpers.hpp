@@ -6,8 +6,7 @@ extern "C" {
 #include "postgres.h"
 }
 
-static int
-get_arrow_list_elem_type(arrow::DataType *type)
+static int get_arrow_list_elem_type(arrow::DataType *type)
 {
     auto children = type->fields();
 

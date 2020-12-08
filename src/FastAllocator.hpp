@@ -13,20 +13,19 @@ private:
     /*
      * Special memory segment to speed up bytea/Text allocations.
      */
-    MemoryContext       segments_cxt;
-    char               *segment_start_ptr;
-    char               *segment_cur_ptr;
-    char               *segment_last_ptr;
-    std::list<char *>   garbage_segments;
+    MemoryContext     segments_cxt;
+    char *            segment_start_ptr;
+    char *            segment_cur_ptr;
+    char *            segment_last_ptr;
+    std::list<char *> garbage_segments;
 
 public:
-    FastAllocator(MemoryContext cxt)
-        : garbage_segments()
+    FastAllocator(MemoryContext cxt) : garbage_segments()
     {
-        this->segments_cxt = cxt;
+        this->segments_cxt      = cxt;
         this->segment_start_ptr = nullptr;
-        this->segment_cur_ptr = nullptr;
-        this->segment_last_ptr = nullptr;
+        this->segment_cur_ptr   = nullptr;
+        this->segment_last_ptr  = nullptr;
     }
 
     /*
@@ -38,7 +37,7 @@ public:
      */
     inline void *fast_alloc(long size)
     {
-        void   *ret;
+        void *ret;
 
         Assert(size >= 0);
 
@@ -58,18 +57,16 @@ public:
              * was one)
              */
             if (this->segment_start_ptr)
-                this->garbage_segments.
-                    push_back(this->segment_start_ptr);
+                this->garbage_segments.push_back(this->segment_start_ptr);
 
-            oldcxt = MemoryContextSwitchTo(this->segments_cxt);
-            this->segment_start_ptr = (char *) exc_palloc(SEGMENT_SIZE);
-            this->segment_cur_ptr = this->segment_start_ptr;
-            this->segment_last_ptr =
-                this->segment_start_ptr + SEGMENT_SIZE - 1;
+            oldcxt                  = MemoryContextSwitchTo(this->segments_cxt);
+            this->segment_start_ptr = (char *)exc_palloc(SEGMENT_SIZE);
+            this->segment_cur_ptr   = this->segment_start_ptr;
+            this->segment_last_ptr  = this->segment_start_ptr + SEGMENT_SIZE - 1;
             MemoryContextSwitchTo(oldcxt);
         }
 
-        ret = (void *) this->segment_cur_ptr;
+        ret = (void *)this->segment_cur_ptr;
         this->segment_cur_ptr += size;
 
         return ret;

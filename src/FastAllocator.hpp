@@ -18,6 +18,7 @@ private:
     char               *segment_cur_ptr;
     char               *segment_last_ptr;
     std::list<char *>   garbage_segments;
+
 public:
     FastAllocator(MemoryContext cxt)
         : garbage_segments()
@@ -79,7 +80,7 @@ public:
         /* recycle old segments if any */
         if (!this->garbage_segments.empty())
         {
-            bool    error = false;
+            bool error = false;
 
             PG_TRY();
             {
@@ -92,7 +93,7 @@ public:
             }
             PG_END_TRY();
             if (error)
-                throw std::runtime_error("garbage segments recycle failed");
+                elog(ERROR, "Garbage segments recycle failed");
 
             this->garbage_segments.clear();
             elog(DEBUG1, "parquet_fdw: garbage segments recycled");

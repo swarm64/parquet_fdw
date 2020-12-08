@@ -284,7 +284,7 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
 
                 arrow_type_id = get_arrow_list_elem_type(arrow_type);
 
-                const auto expectedPostgresType = to_postgres_arraytype(arrow_type_id);
+                const auto expectedPostgresType = to_postgres_type(arrow_type_id, true);
                 if (expectedPostgresType != pg_type->oid)
                     elog(ERROR, "Type mismatch on column '%s'",
                          NameStr(slot->tts_tupleDescriptor->attrs[attr].attname));

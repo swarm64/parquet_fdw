@@ -38,6 +38,11 @@ ifdef CCFLAGS
 	override PG_CFLAGS += $(CCFLAGS)
 endif
 
+ifdef DEBUG
+	override PG_CXXFLAGS += -O0 -g
+	override PG_CFLAGS += -O0 -g
+endif
+
 include $(PGXS)
 
 # XXX: PostgreSQL below 11 does not automatically add -fPIC or equivalent to C++

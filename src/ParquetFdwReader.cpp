@@ -158,10 +158,10 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
     status = this->reader->RowGroup(rowGroupId)->ReadTable(this->indices, &this->table);
 
     if (!status.ok())
-        throw std::runtime_error(status.message().c_str());
+        elog(ERROR, "Error reading table: %s", status.message().c_str());
 
     if (!this->table)
-        throw std::runtime_error("got empty table");
+        elog(ERROR, "Table is empty");
 
     /* TODO: don't clear each time */
     this->chunk_info.clear();
@@ -261,6 +261,11 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             /* Currently only primitive types and lists are supported */
             if (arrow_type_id != arrow::Type::LIST)
             {
+                const auto expectedPostgresType = to_postgres_type(arrow_type_id);
+                if (expectedPostgresType != pg_type->oid)
+                    elog(ERROR, "Type mismatch on column '%s'",
+                         NameStr(slot->tts_tupleDescriptor->attrs[attr].attname));
+
                 if (this->has_nulls[arrow_col] && array->IsNull(chunkInfo.pos))
                 {
                     slot->tts_isnull[attr] = true;
@@ -275,11 +280,14 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             else
             {
                 if (!OidIsValid(pg_type->elem_type))
-                {
-                    throw std::runtime_error("parquet_fdw: cannot convert parquet column of type "
-                                             "LIST to postgres column of scalar type");
-                }
+                    elog(ERROR, "Could not convert parquet column of type LIST to scalar PG type");
+
                 arrow_type_id = get_arrow_list_elem_type(arrow_type);
+
+                const auto expectedPostgresType = to_postgres_arraytype(arrow_type_id);
+                if (expectedPostgresType != pg_type->oid)
+                    elog(ERROR, "Type mismatch on column '%s'",
+                         NameStr(slot->tts_tupleDescriptor->attrs[attr].attname));
 
                 int64             pos    = chunkInfo.pos;
                 arrow::ListArray *larray = (arrow::ListArray *)array;
@@ -440,7 +448,7 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
         }
         PG_END_TRY();
         if (error)
-            throw std::runtime_error(errstr);
+            elog(ERROR, "%s", errstr);
     }
 
     return res;
@@ -520,7 +528,7 @@ construct_array:
     }
     PG_END_TRY();
     if (error)
-        throw std::runtime_error("failed to constuct an array");
+        elog(ERROR, "Failed to construct array");
 
     return PointerGetDatum(res);
 }

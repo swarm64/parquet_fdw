@@ -96,7 +96,6 @@ static void  destroy_parquet_state(void *arg);
 enum ReaderType
 {
     RT_MULTI = 0
-    // , RT_MULTI_MERGE
 };
 
 /*
@@ -911,42 +910,6 @@ static void extract_used_attributes(RelOptInfo *baserel)
     }
 }
 
-/*
- * cost_merge
- *      Calculate the cost of merging nfiles files. The entire logic is stolen
- *      from cost_gather_merge().
- */
-/*
-static void
-cost_merge(Path *path, uint32 nfiles, Cost input_startup_cost,
-           Cost input_total_cost, double rows)
-{
-    Cost		startup_cost = 0;
-    Cost		run_cost = 0;
-    Cost		comparison_cost;
-    double		N;
-    double		logN;
-
-    N = nfiles;
-    logN = LOG2(N);
-
-    // Assumed cost per tuple comparison
-    comparison_cost = 2.0 * cpu_operator_cost;
-
-    // Heap creation cost
-    startup_cost += comparison_cost * N * logN;
-
-    // Per-tuple heap maintenance cost
-    run_cost += rows * comparison_cost * logN;
-
-    // small cost for heap management, like cost_merge_append
-    run_cost += cpu_operator_cost * rows;
-
-    path->startup_cost = startup_cost + input_startup_cost;
-    path->total_cost = (startup_cost + run_cost + input_total_cost);
-}
-*/
-
 extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
 {
     ParquetFdwPlanState *fdw_private;
@@ -1026,38 +989,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         pathkeys     = list_concat(pathkeys, attr_pathkey);
     }
 
-    /* Create a separate path with pathkeys for sorted parquet files. */
-    /*
-    if (is_sorted)
-    {
-        Path                   *path;
-        ParquetFdwPlanState    *private_sort;
-
-        private_sort = (ParquetFdwPlanState *) palloc(sizeof(ParquetFdwPlanState));
-        memcpy(private_sort, fdw_private, sizeof(ParquetFdwPlanState));
-
-        path = (Path *) create_foreignscan_path(root, baserel,
-                                                NULL,	// default pathtarget
-                                                baserel->rows,
-                                                startup_cost,
-                                                total_cost,
-                                                pathkeys,
-                                                NULL,	// no outer rel either
-                                                NULL,	// no extra plan
-                                                (List *) private_sort);
-
-        // For multifile case calculate the cost of merging files
-        if (is_multi)
-        {
-            private_sort->type = RT_MULTI_MERGE;
-
-            cost_merge((Path *) path, list_length(private_sort->filenames),
-                       startup_cost, total_cost, baserel->rows);
-        }
-        add_path(baserel, path);
-    }
-    */
-
     foreign_path = (Path *)create_foreignscan_path(root, baserel, nullptr, /* default pathtarget */
                                                    baserel->rows, startup_cost, total_cost,
                                                    nullptr, /* no pathkeys */
@@ -1089,16 +1020,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         parallel_path->parallel_aware   = true;
         parallel_path->parallel_safe    = true;
 
-        /* Create GatherMerge path for sorted parquet files */
-        /*
-        if (is_sorted)
-        {
-            GatherMergePath *gather_merge =
-                create_gather_merge_path(root, baserel, parallel_path, NULL,
-                                         pathkeys, NULL, NULL);
-            add_path(baserel, (Path *) gather_merge);
-        }
-        */
         add_partial_path(baserel, parallel_path);
     }
 }
@@ -1251,39 +1172,21 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         }
     }
 
-    try
+    if (reader_type != RT_MULTI)
+        elog(ERROR, "Unknown reader type %d", reader_type);
+
+    festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrs_used, use_threads,
+                                           use_mmap);
+
+    if (!filenames)
+        elog(ERROR, "parquet_fdw: got an empty filenames list");
+
+    forboth(lc, filenames, lc2, rowgroups_list)
     {
-        switch (reader_type)
-        {
-        case RT_MULTI:
-            festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrs_used, use_threads,
-                                                   use_mmap);
-            break;
-        /*
-        case RT_MULTI_MERGE:
-            festate = new MultifileMergeExecutionState(reader_cxt, tupleDesc,
-                                                       attrs_used, sort_keys,
-                                                       use_threads, use_mmap);
-            break;
-        */
-        default:
-            throw std::runtime_error("unknown reader type");
-        }
+        char *filename  = strVal((Value *)lfirst(lc));
+        List *rowgroups = (List *)lfirst(lc2);
 
-        if (!filenames)
-            elog(ERROR, "parquet_fdw: got an empty filenames list");
-
-        forboth(lc, filenames, lc2, rowgroups_list)
-        {
-            char *filename  = strVal((Value *)lfirst(lc));
-            List *rowgroups = (List *)lfirst(lc2);
-
-            festate->add_file(filename, rowgroups);
-        }
-    }
-    catch (std::exception &e)
-    {
-        elog(ERROR, "parquet_fdw: %s", e.what());
+        festate->add_file(filename, rowgroups);
     }
 
     festate->fillReadList();
@@ -1524,17 +1427,10 @@ extern "C" void parquetExplainForeignScan(ForeignScanState *node, ExplainState *
     reader_type    = (ReaderType)intVal((Value *)list_nth(fdw_private, 5));
     rowgroups_list = (List *)llast(fdw_private);
 
-    switch (reader_type)
-    {
-    case RT_MULTI:
-        ExplainPropertyText("Reader", "Multifile", es);
-        break;
-        /*
-        case RT_MULTI_MERGE:
-            ExplainPropertyText("Reader", "Multifile Merge", es);
-            break;
-        */
-    }
+    if (reader_type != RT_MULTI)
+        elog(ERROR, "Unknown reader type: %d", reader_type);
+
+    ExplainPropertyText("Reader", "Multifile", es);
 
     forboth(lc, filenames, lc2, rowgroups_list)
     {

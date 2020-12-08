@@ -14,7 +14,7 @@ class MultifileMergeExecutionState : public ParquetFdwExecutionState // ParquetF
         int             reader_id;
         TupleTableSlot *slot;
     };
-    typedef std::vector<FileSlot> BinHeap;
+    using BinHeap = std::vector<FileSlot>;
 private:
     std::list<SortSupportData> sort_keys;
 
@@ -48,6 +48,6 @@ public:
     ~MultifileMergeExecutionState();
 
     bool next(TupleTableSlot *slot, bool fake=false);
-    void rescan(void);
+    void rescan();
     void set_coordinator(ReadCoordinator *coord);
 };

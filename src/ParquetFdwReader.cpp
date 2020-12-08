@@ -323,7 +323,7 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
     }
 }
 
-void ParquetFdwReader::rescan(void)
+void ParquetFdwReader::rescan()
 {
     this->row_group = 0;
     this->row = 0;

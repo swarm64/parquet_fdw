@@ -75,7 +75,7 @@ public:
         return ret;
     }
 
-    void recycle(void)
+    void recycle()
     {
         /* recycle old segments if any */
         if (!this->garbage_segments.empty())

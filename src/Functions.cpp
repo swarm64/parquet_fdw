@@ -26,7 +26,7 @@ static std::vector<std::string> textArrayToVector(ArrayType* array) {
 
     std::vector<std::string> fields;
     for (int i = 0; i < fieldsCount; i++) {
-        fields.push_back(text_to_cstring(DatumGetTextP(fieldsArray[i])));
+        fields.emplace_back(text_to_cstring(DatumGetTextP(fieldsArray[i])));
     }
     return fields;
 }

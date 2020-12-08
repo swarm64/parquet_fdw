@@ -132,7 +132,7 @@ public:
     void prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc);
     bool next(TupleTableSlot *slot, bool fake=false);
     void populate_slot(TupleTableSlot *slot, bool fake=false);
-    void rescan(void);
+    void rescan();
     Datum
     read_primitive_type(arrow::Array *array,
                         int type_id, int64_t i,

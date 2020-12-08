@@ -1,9 +1,9 @@
 #pragma once
 
-typedef signed short int16;
-typedef int int32;
-typedef long int int64;
-typedef unsigned int uint32;
+using int16 = short;
+using int32 = int;
+using int64 = long;
+using uint32 = unsigned int;
 
 #if __cplusplus > 199711L
 #define register      // Deprecated in C++11.
@@ -18,7 +18,7 @@ extern "C" {
 struct FmgrInfo;
 
 #include <cstddef>
-typedef size_t Size;
+using Size = size_t;
 
 #include "arrow/api.h"
 #include <list>

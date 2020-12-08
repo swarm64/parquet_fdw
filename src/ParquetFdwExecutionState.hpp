@@ -39,8 +39,8 @@ protected:
     ReadCoordinator    *coord;
 
 private:
-    typedef std::tuple<int32_t, int32_t> tReadListEntry;
-    typedef std::vector<tReadListEntry> tReadList;
+    using tReadListEntry = std::tuple<int32_t, int32_t>;
+    using tReadList = std::vector<tReadListEntry>;
 
     tReadList readList;
     // bool messageDone = false;
@@ -57,7 +57,7 @@ public:
     ~ParquetFdwExecutionState();
 
     bool next(TupleTableSlot *slot, bool fake=false);
-    void rescan(void);
+    void rescan();
     void add_file(const char *filename, List *rowgroups);
     void set_coordinator(ReadCoordinator *coord);
     void fillReadList();

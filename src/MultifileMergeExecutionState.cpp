@@ -160,7 +160,7 @@ bool MultifileMergeExecutionState::next(TupleTableSlot *slot, bool fake)
     return true;
 }
 
-void MultifileMergeExecutionState::rescan(void)
+void MultifileMergeExecutionState::rescan()
 {
     elog(ERROR, "rescan not implemented...");
     /* TODO: clean binheap */

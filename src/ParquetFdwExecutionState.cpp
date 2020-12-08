@@ -1,5 +1,9 @@
 
 #include "ParquetFdwExecutionState.hpp"
+
+
+#include <utility>
+
 #include "ReadCoordinator.hpp"
 
 extern "C" {
@@ -12,7 +16,7 @@ ParquetFdwExecutionState::ParquetFdwExecutionState(MemoryContext cxt,
                         bool use_threads,
                         bool use_mmap)
     : cxt(cxt), tupleDesc(tupleDesc),
-      attrs_used(attrs_used), use_threads(use_threads), use_mmap(use_mmap),
+      attrs_used(std::move(attrs_used)), use_threads(use_threads), use_mmap(use_mmap),
       coord(new ReadCoordinator())
 { }
 
@@ -54,7 +58,7 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
     return res;
 }
 
-void ParquetFdwExecutionState::rescan(void)
+void ParquetFdwExecutionState::rescan()
 {
     elog(ERROR, "rescan not implemented...");
     // reader->rescan();

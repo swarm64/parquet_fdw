@@ -26,7 +26,9 @@ class ConvertCsvToParquet
     std::vector<std::string>                 textArrayToVector(ArrayType *array);
     std::shared_ptr<arrow::csv::TableReader> getCsvTableReader(const char *src_filepath);
     tArrowTablePtr assignFieldNames(ArrayType *field_names, const tArrowTablePtr targetTable);
-    void           writeParquetFile(const char *target_filepath, tArrowTablePtr srcTable);
+    void           writeParquetFile(const char *   target_filepath,
+                                    tArrowTablePtr srcTable,
+                                    const char *   compressionType);
 
 public:
     ConvertCsvToParquet() = default;

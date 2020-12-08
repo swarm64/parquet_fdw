@@ -3,6 +3,7 @@
 #include "arrow/csv/reader.h"
 #include "arrow/io/api.h"
 #include "parquet/arrow/writer.h"
+#include "parquet/properties.h"
 
 extern "C" {
 #include "catalog/pg_type_d.h"
@@ -14,6 +15,32 @@ extern "C" {
 
 #include <filesystem>
 
+static parquet::Compression::type getParquetCompressionType(const char *_compressionType)
+{
+    if (!_compressionType)
+        return parquet::Compression::UNCOMPRESSED;
+
+    const auto compressionType = std::string(_compressionType);
+    if (compressionType.empty() || compressionType == "UNCOMPRESSED")
+        return parquet::Compression::UNCOMPRESSED;
+    else if (compressionType == "SNAPPY")
+        return parquet::Compression::SNAPPY;
+    else if (compressionType == "GZIP")
+        return parquet::Compression::GZIP;
+    else if (compressionType == "LZO")
+        return parquet::Compression::LZO;
+    else if (compressionType == "BROTLI")
+        return parquet::Compression::BROTLI;
+    else if (compressionType == "LZ4")
+        return parquet::Compression::LZ4;
+    else if (compressionType == "ZSTD")
+        return parquet::Compression::ZSTD;
+    else
+        elog(ERROR, "Unsupported compression type: %s", compressionType.c_str());
+
+    return parquet::Compression::UNCOMPRESSED;
+}
+
 int64_t ConvertCsvToParquet::convert(const char *srcFilePath,
                                      const char *targetFilePath,
                                      const char *compressionType,
@@ -24,7 +51,7 @@ int64_t ConvertCsvToParquet::convert(const char *srcFilePath,
         elog(ERROR, "Could not read CSV file: %s", csvTableResult.status().ToString().c_str());
 
     const auto csvTable = assignFieldNames(fieldNames, csvTableResult.ValueOrDie());
-    writeParquetFile(targetFilePath, csvTable);
+    writeParquetFile(targetFilePath, csvTable, compressionType);
 
     return csvTable->num_rows();
 }
@@ -94,8 +121,12 @@ ConvertCsvToParquet::tArrowTablePtr
          renamedColumnsTableResult.status().ToString().c_str());
 }
 
-void ConvertCsvToParquet::writeParquetFile(const char *target_filepath, tArrowTablePtr srcTable)
+void ConvertCsvToParquet::writeParquetFile(const char *   target_filepath,
+                                           tArrowTablePtr srcTable,
+                                           const char *   compressionType)
 {
+    const auto parquetCompressionType = getParquetCompressionType(compressionType);
+
     std::filesystem::path dest(target_filepath);
     if (std::filesystem::exists(dest))
         elog(ERROR, "Target file does exist already");
@@ -104,11 +135,19 @@ void ConvertCsvToParquet::writeParquetFile(const char *target_filepath, tArrowTa
     if (!outputDestFileResult.ok())
         elog(ERROR, "Could not open target parquet file: %s",
              outputDestFileResult.status().ToString().c_str());
+    const auto outputDestFile = outputDestFileResult.ValueOrDie();
 
-    const auto outputDestFile     = outputDestFileResult.ValueOrDie();
+    parquet::WriterProperties::Builder builder;
+    builder.compression(parquetCompressionType);
+    const auto writerProperties = builder.build();
+
     const auto writeParquetResult = parquet::arrow::WriteTable(
-            *srcTable, arrow::default_memory_pool(), outputDestFile, 1000000);
+            *srcTable, arrow::default_memory_pool(), outputDestFile, 1000000, writerProperties);
     if (!writeParquetResult.ok())
         elog(ERROR, "Could not write target parquet file: %s",
              writeParquetResult.ToString().c_str());
+
+    const auto closeStatus = outputDestFile->Close();
+    if (!closeStatus.ok())
+        elog(ERROR, "Could not close target parquet file: %s", closeStatus.ToString().c_str());
 }

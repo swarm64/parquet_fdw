@@ -154,7 +154,7 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
     {
         if (columnUseList[columnIdx])
         {
-            std::shared_ptr<arrow::ChunkedArray> columnChunk = nullptr;
+            std::shared_ptr<arrow::ChunkedArray> columnChunk;
             const auto columnReader = reader->RowGroup(rowGroupId)->Column(columnIdx);
             const auto status       = columnReader->Read(&columnChunk);
             if (!status.ok())
@@ -166,7 +166,7 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
                 elog(ERROR, "More than one chunk found.");
 
             const auto array = columnChunk->chunk(0);
-            columnChunks.push_back(array.get());
+            columnChunks.push_back(array);
         }
         else
         {
@@ -210,7 +210,7 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             // Removed castfuncs here since it seemed that they were only used on LIST type
             // which we also removed.
             slot->tts_values[attr] =
-                    this->read_primitive_type(columnChunk, columnTypes[attr], row, nullptr);
+                    this->read_primitive_type(columnChunk.get(), columnTypes[attr], row, nullptr);
         }
     }
 }

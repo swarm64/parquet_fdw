@@ -90,7 +90,7 @@ public:
     // std::vector<arrow::DataType *> types;
     std::vector<arrow::Type::type> columnTypes;
 
-    std::vector<arrow::Array *> columnChunks;
+    std::vector<std::shared_ptr<arrow::Array>> columnChunks;
 
     std::vector<PgTypeInfo> pg_types;
 

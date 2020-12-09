@@ -33,9 +33,10 @@ protected:
 
     MemoryContext cxt;
     TupleDesc     tupleDesc;
-    std::set<int> attrs_used;
-    bool          use_threads;
-    bool          use_mmap;
+    // std::set<int> attrs_used;
+    std::vector<bool> attrUseList;
+    bool              use_threads;
+    bool              use_mmap;
 
     ReadCoordinator *coord;
 
@@ -48,11 +49,12 @@ private:
     // ParquetFdwReader *get_next_reader();
 
 public:
-    ParquetFdwExecutionState(MemoryContext cxt,
-                             TupleDesc     tupleDesc,
-                             std::set<int> attrs_used,
-                             bool          use_threads,
-                             bool          use_mmap);
+    ParquetFdwExecutionState(MemoryContext            cxt,
+                             TupleDesc                tupleDesc,
+                             const std::vector<bool> &attrUseList,
+                             // std::set<int> attrs_used,
+                             bool use_threads,
+                             bool use_mmap);
 
     ~ParquetFdwExecutionState();
 

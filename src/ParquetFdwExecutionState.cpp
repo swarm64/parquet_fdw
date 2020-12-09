@@ -9,14 +9,16 @@ extern "C" {
 #include "miscadmin.h"
 }
 
-ParquetFdwExecutionState::ParquetFdwExecutionState(MemoryContext cxt,
-                                                   TupleDesc     tupleDesc,
-                                                   std::set<int> attrs_used,
-                                                   bool          use_threads,
-                                                   bool          use_mmap)
+ParquetFdwExecutionState::ParquetFdwExecutionState(MemoryContext            cxt,
+                                                   TupleDesc                tupleDesc,
+                                                   const std::vector<bool> &attrUseList,
+                                                   // std::set<int> attrs_used,
+                                                   bool use_threads,
+                                                   bool use_mmap)
     : cxt(cxt),
       tupleDesc(tupleDesc),
-      attrs_used(std::move(attrs_used)),
+      attrUseList(attrUseList),
+      // attrs_used(std::move(attrs_used)),
       use_threads(use_threads),
       use_mmap(use_mmap),
       coord(new ReadCoordinator())
@@ -84,7 +86,7 @@ void ParquetFdwExecutionState::add_file(const char *filename, List *rowgroups)
 
     files.push_back(fr);
     const auto reader = std::make_shared<ParquetFdwReader>(filename, 0);
-    reader->open(filename, cxt, tupleDesc, attrs_used, use_threads, use_mmap);
+    reader->open(filename, cxt, tupleDesc, attrUseList, use_threads, use_mmap);
     reader->set_rowgroups_list(fr.rowgroups);
     readers.push_back(reader);
 }

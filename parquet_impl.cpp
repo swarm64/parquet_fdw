@@ -378,15 +378,17 @@ static List *parse_filenames_list(const char *str)
     return filenames;
 }
 
-static void validateSchema(const std::shared_ptr<arrow::Schema> schema, TupleDesc tupleDesc) {
+static void validateSchema(const std::shared_ptr<arrow::Schema> schema, TupleDesc tupleDesc)
+{
     // Validate column types
-    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr) {
-        const auto attr = tupleDesc->attrs[numAttr];
+    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
+    {
+        const auto attr             = tupleDesc->attrs[numAttr];
         const auto expectedPgTypeId = attr.atttypid;
 
-        const auto field = schema->field(numAttr);
+        const auto field       = schema->field(numAttr);
         const auto arrowTypeId = field->type()->id();
-        const auto pgTypeId = to_postgres_type(arrowTypeId);
+        const auto pgTypeId    = to_postgres_type(arrowTypeId);
 
         if (pgTypeId == InvalidOid)
             elog(ERROR, "Type on column '%s' currently not supported.", NameStr(attr.attname));
@@ -1074,8 +1076,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     List *                    attrs_list;
     List *                    rowgroups_list = NIL;
     ListCell *                lc, *lc2;
-    List *                    filenames = NIL;
-    std::set<int>             attrs_used;
+    List *                    filenames    = NIL;
     List *                    attrs_sorted = NIL;
     bool                      use_mmap     = false;
     bool                      use_threads  = false;
@@ -1083,6 +1084,11 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     ReaderType                reader_type  = RT_MULTI;
 
     // elog(WARNING, "%d Begin foreign scan", MyProcPid);
+    //
+
+    TupleTableSlot *slot        = node->ss.ss_ScanTupleSlot;
+    TupleDesc       tupleDesc   = slot->tts_tupleDescriptor;
+    auto            attrUseList = std::vector<bool>(tupleDesc->natts, false);
 
     /* Unwrap fdw_private */
     foreach (lc, fdw_private)
@@ -1095,7 +1101,11 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         case 1:
             attrs_list = (List *)lfirst(lc);
             foreach (lc2, attrs_list)
-                attrs_used.insert(lfirst_int(lc2));
+            {
+                const auto idx      = lfirst_int(lc2);
+                const auto attNum   = idx - 1 + FirstLowInvalidHeapAttributeNumber;
+                attrUseList[attNum] = true;
+            }
             break;
         case 2:
             attrs_sorted = (List *)lfirst(lc);
@@ -1116,10 +1126,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         ++i;
     }
 
-    MemoryContext   cxt       = estate->es_query_cxt;
-    TupleTableSlot *slot      = node->ss.ss_ScanTupleSlot;
-    TupleDesc       tupleDesc = slot->tts_tupleDescriptor;
-
+    MemoryContext cxt = estate->es_query_cxt;
     reader_cxt = AllocSetContextCreate(cxt, "parquet_fdw tuple data", ALLOCSET_DEFAULT_SIZES);
 
     std::list<SortSupportData> sort_keys;
@@ -1160,8 +1167,8 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     if (reader_type != RT_MULTI)
         elog(ERROR, "Unknown reader type %d", reader_type);
 
-    festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrs_used, use_threads,
-                                           use_mmap);
+    festate =
+            new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_threads, use_mmap);
 
     if (!filenames)
         elog(ERROR, "parquet_fdw: got an empty filenames list");
@@ -1287,19 +1294,18 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
     MemoryContext             reader_cxt;
     TupleDesc                 tupleDesc = RelationGetDescr(relation);
     TupleTableSlot *          slot;
-    std::set<int>             attrs_used;
-    int                       cnt      = 0;
-    uint64                    num_rows = 0;
-    ListCell *                lc;
+    // std::set<int>             attrs_used;
+    int       cnt      = 0;
+    uint64    num_rows = 0;
+    ListCell *lc;
 
     get_table_options(RelationGetRelid(relation), &fdw_private);
 
-    for (int i = 0; i < tupleDesc->natts; ++i)
-        attrs_used.insert(i + 1 - FirstLowInvalidHeapAttributeNumber);
+    const auto attrUseList = std::vector<bool>(tupleDesc->natts, true);
 
     reader_cxt = AllocSetContextCreate(CurrentMemoryContext, "parquet_fdw tuple data",
                                        ALLOCSET_DEFAULT_SIZES);
-    festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrs_used,
+    festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList,
                                            fdw_private.use_threads, false);
 
     foreach (lc, fdw_private.filenames)

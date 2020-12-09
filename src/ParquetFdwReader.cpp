@@ -1,6 +1,6 @@
 
 #include "ParquetFdwReader.hpp"
-#include "Conversion.hpp"
+// #include "Conversion.hpp"
 
 extern "C" {
 #include "access/tupdesc.h"
@@ -18,6 +18,7 @@ extern "C" {
 
 bool parquet_fdw_use_threads = true;
 
+/*
 static char *tolowercase(const char *input, char *output)
 {
     int i = 0;
@@ -31,13 +32,15 @@ static char *tolowercase(const char *input, char *output)
 
     return output;
 }
+*/
 
-void ParquetFdwReader::open(const char *   filename,
-                            MemoryContext  cxt,
-                            TupleDesc      tupleDesc,
-                            std::set<int> &attrs_used,
-                            bool           use_threads,
-                            bool           use_mmap)
+void ParquetFdwReader::open(const char *             filename,
+                            MemoryContext            cxt,
+                            TupleDesc                tupleDesc,
+                            const std::vector<bool> &attrUseList,
+                            // std::set<int> &attrs_used,
+                            bool use_threads,
+                            bool use_mmap)
 {
     parquet::ArrowReaderProperties              props;
     arrow::Status                               status;
@@ -58,7 +61,12 @@ void ParquetFdwReader::open(const char *   filename,
     /* Enable parallel columns decoding/decompression if needed */
     this->reader->set_use_threads(use_threads && parquet_fdw_use_threads);
 
+    for (int i = 0; i < tupleDesc->natts; i++)
+    {
+        columnTypes.push_back(this->schema->field(i)->type()->id());
+    }
     /* Create mapping between tuple descriptor and parquet columns. */
+    /*
     this->map.resize(tupleDesc->natts);
     for (int i = 0; i < tupleDesc->natts; i++)
     {
@@ -66,8 +74,9 @@ void ParquetFdwReader::open(const char *   filename,
         char       pg_colname[255];
 
         this->map[i] = -1;
+        columnTypes.push_back(this->schema->field(i)->type()->id());
 
-        /* Skip columns we don't intend to use in query */
+        // Skip columns we don't intend to use in query
         if (attrs_used.find(attnum) == attrs_used.end())
             continue;
 
@@ -81,27 +90,26 @@ void ParquetFdwReader::open(const char *   filename,
 
             tolowercase(path[0].c_str(), parquet_colname);
 
-            /*
-             * Compare postgres attribute name to the top level column name in
-             * parquet.
-             *
-             * XXX If we will ever want to support structs then this should be
-             * changed.
-             */
+             // Compare postgres attribute name to the top level column name in
+             // parquet.
+             //
+             // XXX If we will ever want to support structs then this should be
+             // changed.
             if (strcmp(pg_colname, parquet_colname) == 0)
             {
                 PgTypeInfo typinfo;
                 bool       error = false;
 
-                /* Found mapping! */
+                // Found mapping!
                 this->indices.push_back(k);
 
-                /* index of last element */
+                // index of last element
                 this->map[i] = this->indices.size() - 1;
 
-                this->types.push_back(this->schema->field(k)->type().get());
+                // this->types.push_back(this->schema->field(k)->type().get());
+                // columnTypes.push_back(this->schema->field(k)->type()->id());
 
-                /* Find the element type in case the column type is array */
+                // Find the element type in case the column type is array
                 PG_TRY();
                 {
                     typinfo.oid       = TupleDescAttr(tupleDesc, i)->atttypid;
@@ -128,8 +136,10 @@ void ParquetFdwReader::open(const char *   filename,
             }
         }
     }
+    */
 
-    this->has_nulls = (bool *)exc_palloc(sizeof(bool) * this->map.size());
+    std::copy(attrUseList.cbegin(), attrUseList.cend(), std::back_inserter(columnUseList));
+    // this->has_nulls = (bool *)exc_palloc(sizeof(bool) * this->map.size());
     this->allocator = new FastAllocator(cxt);
 }
 
@@ -139,71 +149,39 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
 
     auto rowgroup_meta = this->reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
 
-    /* Determine which columns has null values */
-    for (int arrow_col : this->map)
+    columnChunks.clear();
+    for (int columnIdx = 0; columnIdx < this->columnUseList.size(); columnIdx++)
     {
-        std::shared_ptr<parquet::Statistics> stats;
-        if (arrow_col < 0)
-            continue;
-
-        stats = rowgroup_meta->ColumnChunk(this->indices[arrow_col])->statistics();
-
-        if (stats)
-            this->has_nulls[arrow_col] = (stats->null_count() > 0);
-        else
-            this->has_nulls[arrow_col] = true;
-    }
-
-    status = this->reader->RowGroup(rowGroupId)->ReadTable(this->indices, &this->table);
-
-    if (!status.ok())
-        elog(ERROR, "Error reading table: %s", status.message().c_str());
-
-    if (!this->table)
-        elog(ERROR, "Table is empty");
-
-    /* TODO: don't clear each time */
-    this->chunk_info.clear();
-    this->chunks.clear();
-    for (int i = 0; i < tupleDesc->natts; i++)
-    {
-        if (this->map[i] >= 0)
+        if (columnUseList[columnIdx])
         {
-            ChunkInfo chunkInfo = {.chunk = 0, .pos = 0, .len = 0};
-            auto      column    = this->table->column(this->map[i]);
+            std::shared_ptr<arrow::ChunkedArray> columnChunk = nullptr;
+            const auto columnReader = reader->RowGroup(rowGroupId)->Column(columnIdx);
+            const auto status       = columnReader->Read(&columnChunk);
+            if (!status.ok())
+                elog(ERROR, "Could not read column %d in row group %d: %s", columnIdx, rowGroupId,
+                     status.message().c_str());
 
-            this->chunk_info.push_back(chunkInfo);
-            this->chunks.push_back(column->chunk(0).get());
+            // Not sure on this one, possibly needs to support multiple chunks
+            if (columnChunk->num_chunks() > 1)
+                elog(ERROR, "More than one chunk found.");
+
+            const auto array = columnChunk->chunk(0);
+            columnChunks.push_back(array.get());
+        }
+        else
+        {
+            columnChunks.push_back(nullptr);
         }
     }
 
     this->row_group = rowGroupId;
     this->row       = 0;
-    this->num_rows  = this->table->num_rows();
+    num_rows        = rowgroup_meta->num_rows();
 }
 
 bool ParquetFdwReader::next(TupleTableSlot *slot, bool fake)
 {
     allocator->recycle();
-
-    if (this->row == 0)
-    {
-        /* Lookup cast funcs */
-        if (!this->initialized)
-            this->initialize_castfuncs(slot->tts_tupleDescriptor);
-    }
-    /*
-    if (this->row >= this->num_rows)
-    {
-        // Read next row group
-        if (!this->read_next_rowgroup(slot->tts_tupleDescriptor))
-            return false;
-
-        // Lookup cast funcs
-        if (!this->initialized)
-            this->initialize_castfuncs(slot->tts_tupleDescriptor);
-    }
-    */
 
     this->populate_slot(slot, fake);
     this->row++;
@@ -224,55 +202,15 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
     /* Fill slot values */
     for (int attr = 0; attr < slot->tts_tupleDescriptor->natts; attr++)
     {
-        int arrow_col = this->map[attr];
-        /*
-         * We only fill slot attributes if column was referred in targetlist
-         * or clauses. In other cases mark attribute as NULL.
-         * */
-        if (arrow_col >= 0)
-        {
-            ChunkInfo &      chunkInfo     = this->chunk_info[arrow_col];
-            arrow::Array *   array         = this->chunks[arrow_col];
-            arrow::DataType *arrow_type    = this->types[arrow_col];
-            int              arrow_type_id = arrow_type->id();
-
-            chunkInfo.len = array->length();
-
-            if (chunkInfo.pos >= chunkInfo.len)
-            {
-                auto column = this->table->column(arrow_col);
-
-                /* There are no more chunks */
-                if (++chunkInfo.chunk >= column->num_chunks())
-                    break;
-
-                array                   = column->chunk(chunkInfo.chunk).get();
-                this->chunks[arrow_col] = array;
-                chunkInfo.pos           = 0;
-                chunkInfo.len           = array->length();
-            }
-
-            /* Don't do actual reading data into slot in fake mode */
-            if (fake)
-                continue;
-
-            /* Currently only primitive types and lists are supported */
-            if (this->has_nulls[arrow_col] && array->IsNull(chunkInfo.pos))
-            {
-                slot->tts_isnull[attr] = true;
-            }
-            else
-            {
-                slot->tts_values[attr] = this->read_primitive_type(
-                        array, arrow_type_id, chunkInfo.pos, this->castfuncs[attr]);
-                slot->tts_isnull[attr] = false;
-            }
-
-            chunkInfo.pos++;
-        }
+        const auto columnChunk = columnChunks[attr];
+        if (columnChunk == nullptr)
+            slot->tts_isnull[attr] = true;
         else
         {
-            slot->tts_isnull[attr] = true;
+            // Removed castfuncs here since it seemed that they were only used on LIST type
+            // which we also removed.
+            slot->tts_values[attr] =
+                    this->read_primitive_type(columnChunk, columnTypes[attr], row, nullptr);
         }
     }
 }
@@ -416,91 +354,14 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
 }
 
 /*
- * nested_list_get_datum
- *      Returns postgres array build from elements of array. Only one
- *      dimensional arrays are supported.
- */
-Datum ParquetFdwReader::nested_list_get_datum(arrow::Array *array,
-                                              int           arrow_type,
-                                              PgTypeInfo *  pg_type,
-                                              FmgrInfo *    castfunc)
-{
-    MemoryContext oldcxt;
-    ArrayType *   res;
-    Datum *       values;
-    bool *        nulls = nullptr;
-    int           dims[1];
-    int           lbs[1];
-    bool          error = false;
-
-    values = (Datum *)this->allocator->fast_alloc(sizeof(Datum) * array->length());
-
-#if SIZEOF_DATUM == 8
-    /* Fill values and nulls arrays */
-    if (array->null_count() == 0 && arrow_type == arrow::Type::INT64)
-    {
-        /*
-         * Ok, there are no nulls, so probably we could just memcpy the
-         * entire array.
-         *
-         * Warning: the code below is based on the assumption that Datum is
-         * 8 bytes long, which is true for most contemporary systems but this
-         * will not work on some exotic or really old systems.
-         */
-        copy_to_c_array<int64_t>((int64_t *)values, array, pg_type->elem_len);
-        goto construct_array;
-    }
-#endif
-    for (int64_t i = 0; i < array->length(); ++i)
-    {
-        if (!array->IsNull(i))
-            values[i] = this->read_primitive_type(array, arrow_type, i, castfunc);
-        else
-        {
-            if (!nulls)
-            {
-                Size size = sizeof(bool) * array->length();
-
-                nulls = (bool *)this->allocator->fast_alloc(size);
-                memset(nulls, 0, size);
-            }
-            nulls[i] = true;
-        }
-    }
-
-construct_array:
-    /*
-     * Construct one dimensional array. We have to use PG_TRY / PG_CATCH
-     * to prevent any kind leaks of resources allocated by c++ in case of
-     * errors.
-     */
-    dims[0] = array->length();
-    lbs[0]  = 1;
-    PG_TRY();
-    {
-        oldcxt = MemoryContextSwitchTo(allocator->context());
-        res = construct_md_array(values, nulls, 1, dims, lbs, pg_type->elem_type, pg_type->elem_len,
-                                 pg_type->elem_byval, pg_type->elem_align);
-        MemoryContextSwitchTo(oldcxt);
-    }
-    PG_CATCH();
-    {
-        error = true;
-    }
-    PG_END_TRY();
-    if (error)
-        elog(ERROR, "Failed to construct array");
-
-    return PointerGetDatum(res);
-}
-
-/*
  * initialize_castfuncs
  *      Check wether implicit cast will be required and prepare cast function
  *      call. For arrays find cast functions for its elements.
  */
 void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
 {
+    elog(ERROR, "castfuncs init called");
+    /*
     this->castfuncs.resize(this->map.size());
 
     for (uint i = 0; i < this->map.size(); ++i)
@@ -512,7 +373,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
 
         if (this->map[i] < 0)
         {
-            /* Null column */
+            // Null column
             this->castfuncs[i] = nullptr;
             continue;
         }
@@ -524,7 +385,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         Oid              funcid;
         CoercionPathType ct;
 
-        /* Find underlying type of list */
+        // Find underlying type of list
         src_is_list = (type_id == arrow::Type::LIST);
         if (src_is_list)
             elog(ERROR, "List type not supported");
@@ -535,12 +396,12 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         if (!OidIsValid(src_type))
             elog(ERROR, "Unsupported column type: %s", type->name().c_str());
 
-        /* Find underlying type of array */
+        // Find underlying type of array
         dst_is_array = type_is_array(dst_type);
         if (dst_is_array)
             dst_type = get_element_type(dst_type);
 
-        /* Make sure both types are compatible */
+        // Make sure both types are compatible
         if (src_is_list != dst_is_array)
         {
             const auto column = this->table->field(arrow_col)->name().c_str();
@@ -572,9 +433,9 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
                     break;
                 }
                 case COERCION_PATH_RELABELTYPE:
-                case COERCION_PATH_COERCEVIAIO: /* TODO: double check that we
-                                                 * shouldn't do anything here*/
-                    /* Cast is not needed */
+                case COERCION_PATH_COERCEVIAIO: // TODO: double check that we
+                                                // shouldn't do anything here
+                    // Cast is not needed
                     this->castfuncs[i] = nullptr;
                     break;
                 default:
@@ -600,6 +461,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
             elog(ERROR, "%s", errstr);
     }
     this->initialized = true;
+    */
 }
 
 void ParquetFdwReader::set_rowgroups_list(const std::vector<int> &rowgroups)

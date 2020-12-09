@@ -69,7 +69,9 @@ public:
      * Mapping between slot attributes and arrow result set columns.
      * Corresponds to 'indices' vector.
      */
-    std::vector<int> map;
+    // std::vector<int> map;
+    // std::vector<bool> useColumn;
+    std::vector<bool> columnUseList;
 
     /*
      * Cast functions from dafult postgres type defined in `to_postgres_type`
@@ -78,18 +80,21 @@ public:
     std::vector<FmgrInfo *> castfuncs;
 
     /* Current row group */
-    std::shared_ptr<arrow::Table> table;
+    // std::shared_ptr<arrow::Table> table;
 
     /*
      * Plain pointers to inner the structures of row group. It's needed to
      * prevent excessive shared_ptr management.
      */
-    std::vector<arrow::Array *>    chunks;
-    std::vector<arrow::DataType *> types;
+    // std::vector<arrow::Array *>    chunks;
+    // std::vector<arrow::DataType *> types;
+    std::vector<arrow::Type::type> columnTypes;
+
+    std::vector<arrow::Array *> columnChunks;
 
     std::vector<PgTypeInfo> pg_types;
 
-    bool *has_nulls; /* per-column info on nulls */
+    // bool *has_nulls; /* per-column info on nulls */
 
     int                    row_group;  /* current row group index */
     uint32_t               row;        /* current row within row group */
@@ -128,22 +133,19 @@ public:
             delete allocator;
     }
 
-    void open(const char *   filename,
-              MemoryContext  cxt,
-              TupleDesc      tupleDesc,
-              std::set<int> &attrs_used,
-              bool           use_threads,
-              bool           use_mmap);
+    void open(const char *             filename,
+              MemoryContext            cxt,
+              TupleDesc                tupleDesc,
+              const std::vector<bool> &attrUseList,
+              // std::set<int> &attrs_used,
+              bool use_threads,
+              bool use_mmap);
 
     void  prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc);
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
     void  rescan();
     Datum read_primitive_type(arrow::Array *array, int type_id, int64_t i, FmgrInfo *castfunc);
-    Datum nested_list_get_datum(arrow::Array *array,
-                                int           arrow_type,
-                                PgTypeInfo *  pg_type,
-                                FmgrInfo *    castfunc);
 
     void initialize_castfuncs(TupleDesc tupleDesc);
 

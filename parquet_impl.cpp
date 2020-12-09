@@ -378,6 +378,24 @@ static List *parse_filenames_list(const char *str)
     return filenames;
 }
 
+static void validateSchema(const std::shared_ptr<arrow::Schema> schema, TupleDesc tupleDesc) {
+    // Validate column types
+    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr) {
+        const auto attr = tupleDesc->attrs[numAttr];
+        const auto expectedPgTypeId = attr.atttypid;
+
+        const auto field = schema->field(numAttr);
+        const auto arrowTypeId = field->type()->id();
+        const auto pgTypeId = to_postgres_type(arrowTypeId);
+
+        if (pgTypeId == InvalidOid)
+            elog(ERROR, "Type on column '%s' currently not supported.", NameStr(attr.attname));
+
+        if (pgTypeId != expectedPgTypeId)
+            elog(ERROR, "Type mismatch on column '%s'.", NameStr(attr.attname));
+    }
+}
+
 /*
  * extract_rowgroups_list
  *      Analyze query predicates and using min/max statistics determine which
@@ -410,6 +428,8 @@ List *extract_rowgroups_list(const char *               filename,
         status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
         if (!status.ok())
             elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
+
+        validateSchema(schema, tupleDesc);
 
         /* Check each row group whether it matches the filters */
         for (int r = 0; r < reader->num_row_groups(); r++)
@@ -1300,6 +1320,15 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
 
             auto meta = reader->parquet_reader()->metadata();
             num_rows += meta->num_rows();
+
+            std::shared_ptr<arrow::Schema> schema;
+
+            parquet::ArrowReaderProperties props;
+            status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
+            if (!status.ok())
+                elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
+
+            validateSchema(schema, tupleDesc);
 
             /* We need to scan all rowgroups */
             for (int i = 0; i < meta->num_row_groups(); ++i)

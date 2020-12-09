@@ -235,7 +235,6 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             arrow::Array *   array         = this->chunks[arrow_col];
             arrow::DataType *arrow_type    = this->types[arrow_col];
             int              arrow_type_id = arrow_type->id();
-            PgTypeInfo *     pg_type       = &this->pg_types[arrow_col];
 
             chunkInfo.len = array->length();
 
@@ -258,27 +257,15 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
                 continue;
 
             /* Currently only primitive types and lists are supported */
-            if (arrow_type_id != arrow::Type::LIST)
+            if (this->has_nulls[arrow_col] && array->IsNull(chunkInfo.pos))
             {
-                const auto expectedPostgresType = to_postgres_type(arrow_type_id);
-                if (expectedPostgresType != pg_type->oid)
-                    elog(ERROR, "Type mismatch on column '%s'",
-                         NameStr(slot->tts_tupleDescriptor->attrs[attr].attname));
-
-                if (this->has_nulls[arrow_col] && array->IsNull(chunkInfo.pos))
-                {
-                    slot->tts_isnull[attr] = true;
-                }
-                else
-                {
-                    slot->tts_values[attr] = this->read_primitive_type(
-                            array, arrow_type_id, chunkInfo.pos, this->castfuncs[attr]);
-                    slot->tts_isnull[attr] = false;
-                }
+                slot->tts_isnull[attr] = true;
             }
             else
             {
-                elog(ERROR, "List type not supported");
+                slot->tts_values[attr] = this->read_primitive_type(
+                        array, arrow_type_id, chunkInfo.pos, this->castfuncs[attr]);
+                slot->tts_isnull[attr] = false;
             }
 
             chunkInfo.pos++;

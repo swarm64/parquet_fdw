@@ -77,7 +77,6 @@ extern "C" {
 }
 
 #include "src/Conversion.hpp"
-#include "src/Helpers.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/functions/ConvertCsvToParquet.hpp"
@@ -547,51 +546,17 @@ static List *extract_parquet_fields(const char *path) noexcept
             field = schema->field(k);
             type  = field->type();
 
-            if (type->id() == arrow::Type::LIST)
-            {
-                int  subtype_id;
-                Oid  pg_subtype;
-                bool error = false;
-
-                if (type->fields().size() != 1)
-                    elog(ERROR, "Lists of structs are not supported.");
-
-                subtype_id = get_arrow_list_elem_type(type.get());
-                pg_subtype = to_postgres_type(subtype_id);
-
-                /* That sucks I know... */
-                PG_TRY();
-                {
-                    pg_type = get_array_type(pg_subtype);
-                }
-                PG_CATCH();
-                {
-                    error = true;
-                }
-                PG_END_TRY();
-
-                if (error)
-                    elog(ERROR, "Failed to get type of array elements");
-            }
-            else
-            {
-                pg_type = to_postgres_type(type->id());
-            }
-
-            if (pg_type != InvalidOid)
-            {
-                if (field->name().length() > 63)
-                    elog(ERROR, "Field name %s in %s is too long", field->name().c_str(), path);
-
-                memcpy(fields->name, field->name().c_str(), field->name().length() + 1);
-                fields->oid = pg_type;
-                res         = lappend(res, fields++);
-            }
-            else
-            {
+            pg_type = to_postgres_type(type->id());
+            if (pg_type == InvalidOid)
                 elog(ERROR, "Cannot convert field %s of type %s in %s", field->name().c_str(),
                      type->name().c_str(), path);
-            }
+
+            if (field->name().length() > 63)
+                elog(ERROR, "Field name %s in %s is too long", field->name().c_str(), path);
+
+            memcpy(fields->name, field->name().c_str(), field->name().length() + 1);
+            fields->oid = pg_type;
+            res         = lappend(res, fields++);
         }
     }
     catch (std::exception &e)

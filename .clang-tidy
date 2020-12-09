@@ -26,6 +26,6 @@ Checks: >
     modernize-use-uncaught-exceptions,
     modernize-use-using,
 WarningsAsErrors: '*'
-HeaderFilterRegex: '^(/home/norman/swarm/repos/parquet_fdw/src/*hpp)$'
+HeaderFilterRegex: '(src/*hpp)$'
 AnalyzeTemporaryDtors: false
 FormatStyle: none

@@ -1,7 +1,6 @@
 
 #include "ParquetFdwReader.hpp"
 #include "Conversion.hpp"
-#include "Helpers.hpp"
 
 extern "C" {
 #include "access/tupdesc.h"
@@ -279,32 +278,7 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             }
             else
             {
-                if (!OidIsValid(pg_type->elem_type))
-                    elog(ERROR, "Could not convert parquet column of type LIST to scalar PG type");
-
-                arrow_type_id = get_arrow_list_elem_type(arrow_type);
-
-                const auto expectedPostgresType = to_postgres_type(arrow_type_id, true);
-                if (expectedPostgresType != pg_type->oid)
-                    elog(ERROR, "Type mismatch on column '%s'",
-                         NameStr(slot->tts_tupleDescriptor->attrs[attr].attname));
-
-                int64             pos    = chunkInfo.pos;
-                arrow::ListArray *larray = (arrow::ListArray *)array;
-
-                if (this->has_nulls[arrow_col] && array->IsNull(pos))
-                {
-                    slot->tts_isnull[attr] = true;
-                }
-                else
-                {
-                    std::shared_ptr<arrow::Array> slice = larray->values()->Slice(
-                            larray->value_offset(pos), larray->value_length(pos));
-
-                    slot->tts_values[attr] = this->nested_list_get_datum(
-                            slice.get(), arrow_type_id, pg_type, this->castfuncs[attr]);
-                    slot->tts_isnull[attr] = false;
-                }
+                elog(ERROR, "List type not supported");
             }
 
             chunkInfo.pos++;
@@ -566,7 +540,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         /* Find underlying type of list */
         src_is_list = (type_id == arrow::Type::LIST);
         if (src_is_list)
-            type_id = get_arrow_list_elem_type(type);
+            elog(ERROR, "List type not supported");
 
         src_type = to_postgres_type(type_id);
         dst_type = TupleDescAttr(tupleDesc, i)->atttypid;

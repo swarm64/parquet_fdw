@@ -39,4 +39,44 @@ SELECT * FROM example_multisort ORDER BY one, five;
    6 |   6 | tres  | 2018-01-06 00:00:00 | 2018-01-06 | f
 (6 rows)
 
+-- self join
+CREATE FOREIGN TABLE example1 (
+    one     INT8,
+    two     INT8,
+    three   TEXT,
+    four    TIMESTAMP,
+    five    DATE,
+    six     BOOL,
+    seven   FLOAT8)
+SERVER parquet_srv
+OPTIONS (filename '/home/heiner/repos/parquet_fdw/data/example1.parquet', sorted 'one');
+SELECT 
+    lhs.one l_one,
+    lhs.three l_three,
+    lhs.seven l_seven,
+    rhs.one r_one,
+    rhs.three r_three,
+    rhs.seven r_seven
+FROM example1 lhs JOIN example1 rhs
+ON lhs.one > 3 * rhs.seven;
+ l_one | l_three | l_seven | r_one | r_three | r_seven 
+-------+---------+---------+-------+---------+---------
+     2 | bar     |         |     1 | foo     |     0.5
+     2 | bar     |         |     4 | uno     |     0.5
+     3 | baz     |       1 |     1 | foo     |     0.5
+     3 | baz     |       1 |     4 | uno     |     0.5
+     4 | uno     |     0.5 |     1 | foo     |     0.5
+     4 | uno     |     0.5 |     3 | baz     |       1
+     4 | uno     |     0.5 |     4 | uno     |     0.5
+     4 | uno     |     0.5 |     6 | tres    |       1
+     5 | dos     |         |     1 | foo     |     0.5
+     5 | dos     |         |     3 | baz     |       1
+     5 | dos     |         |     4 | uno     |     0.5
+     5 | dos     |         |     6 | tres    |       1
+     6 | tres    |       1 |     1 | foo     |     0.5
+     6 | tres    |       1 |     3 | baz     |       1
+     6 | tres    |       1 |     4 | uno     |     0.5
+     6 | tres    |       1 |     6 | tres    |       1
+(16 rows)
+
 DROP EXTENSION parquet_fdw CASCADE;

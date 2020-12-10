@@ -23,4 +23,28 @@ SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one five');
 EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
 SELECT * FROM example_multisort ORDER BY one, five;
+
+-- self join
+CREATE FOREIGN TABLE example1 (
+    one     INT8,
+    two     INT8,
+    three   TEXT,
+    four    TIMESTAMP,
+    five    DATE,
+    six     BOOL,
+    seven   FLOAT8)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+
+SELECT 
+    lhs.one l_one,
+    lhs.three l_three,
+    lhs.seven l_seven,
+    rhs.one r_one,
+    rhs.three r_three,
+    rhs.seven r_seven
+FROM example1 lhs JOIN example1 rhs
+ON lhs.one > 3 * rhs.seven;
+
+
 DROP EXTENSION parquet_fdw CASCADE;

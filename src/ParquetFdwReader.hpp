@@ -55,8 +55,6 @@ private:
 
 public:
     const std::filesystem::path filePath;
-    /* id needed for parallel execution */
-    int32 reader_id;
 
     std::unique_ptr<parquet::arrow::FileReader> reader;
 
@@ -65,29 +63,7 @@ public:
     /* Arrow column indices that are used in query */
     std::vector<int> indices;
 
-    /*
-     * Mapping between slot attributes and arrow result set columns.
-     * Corresponds to 'indices' vector.
-     */
-    // std::vector<int> map;
-    // std::vector<bool> useColumn;
-    std::vector<bool> columnUseList;
-
-    /*
-     * Cast functions from dafult postgres type defined in `to_postgres_type`
-     * to actual table column type.
-     */
-    std::vector<FmgrInfo *> castfuncs;
-
-    /* Current row group */
-    // std::shared_ptr<arrow::Table> table;
-
-    /*
-     * Plain pointers to inner the structures of row group. It's needed to
-     * prevent excessive shared_ptr management.
-     */
-    // std::vector<arrow::Array *>    chunks;
-    // std::vector<arrow::DataType *> types;
+    std::vector<bool>              columnUseList;
     std::vector<arrow::Type::type> columnTypes;
 
     std::vector<std::shared_ptr<arrow::Array>> columnChunks;
@@ -117,13 +93,8 @@ public:
     /* Wether object is properly initialized */
     bool initialized;
 
-    ParquetFdwReader(const char *file_path, const int reader_id)
-        : filePath(file_path),
-          reader_id(reader_id),
-          row_group(-1),
-          row(0),
-          num_rows(0),
-          initialized(false)
+    ParquetFdwReader(const char *file_path)
+        : filePath(file_path), row_group(-1), row(0), num_rows(0), initialized(false)
     {
     }
 
@@ -137,17 +108,14 @@ public:
               MemoryContext            cxt,
               TupleDesc                tupleDesc,
               const std::vector<bool> &attrUseList,
-              // std::set<int> &attrs_used,
-              bool use_threads,
-              bool use_mmap);
+              bool                     use_threads,
+              bool                     use_mmap);
 
     void  prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc);
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
     void  rescan();
-    Datum read_primitive_type(arrow::Array *array, int type_id, int64_t i, FmgrInfo *castfunc);
-
-    void initialize_castfuncs(TupleDesc tupleDesc);
+    Datum read_primitive_type(arrow::Array *array, int type_id, int64_t i);
 
     static std::shared_ptr<arrow::Schema> GetSchema(const char *path)
     {

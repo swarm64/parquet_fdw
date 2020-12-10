@@ -88,7 +88,7 @@ void ParquetFdwExecutionState::add_file(const char *filename, List *rowgroups)
     }
 
     files.push_back(fr);
-    const auto reader = std::make_shared<ParquetFdwReader>(filename, 0);
+    const auto reader = std::make_shared<ParquetFdwReader>(filename);
     reader->open(filename, cxt, tupleDesc, attrUseList, use_threads, use_mmap);
     reader->set_rowgroups_list(fr.rowgroups);
     readers.push_back(reader);

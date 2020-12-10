@@ -7,34 +7,9 @@ extern "C" {
 
 #include "utils/date.h"
 #include "utils/timestamp.h"
-
-// #include "access/tupdesc.h"
-// #include "executor/tuptable.h"
-// #include "miscadmin.h"
-// #include "parser/parse_coerce.h"
-// #include "utils/array.h"
-// #include "utils/builtins.h"
-// #include "utils/lsyscache.h"
-// #include "utils/memutils.h"
 }
 
 bool parquet_fdw_use_threads = true;
-
-/*
-static char *tolowercase(const char *input, char *output)
-{
-    int i = 0;
-
-    Assert(strlen(input) < 254);
-
-    do
-    {
-        output[i] = tolower(input[i]);
-    } while (input[i++]);
-
-    return output;
-}
-*/
 
 void ParquetFdwReader::open(const char *             filename,
                             MemoryContext            cxt,
@@ -67,81 +42,8 @@ void ParquetFdwReader::open(const char *             filename,
     {
         columnTypes.push_back(this->schema->field(i)->type()->id());
     }
-    /* Create mapping between tuple descriptor and parquet columns. */
-    /*
-    this->map.resize(tupleDesc->natts);
-    for (int i = 0; i < tupleDesc->natts; i++)
-    {
-        AttrNumber attnum = i + 1 - FirstLowInvalidHeapAttributeNumber;
-        char       pg_colname[255];
-
-        this->map[i] = -1;
-        columnTypes.push_back(this->schema->field(i)->type()->id());
-
-        // Skip columns we don't intend to use in query
-        if (attrs_used.find(attnum) == attrs_used.end())
-            continue;
-
-        tolowercase(NameStr(TupleDescAttr(tupleDesc, i)->attname), pg_colname);
-
-        for (int k = 0; k < schema->num_columns(); k++)
-        {
-            parquet::schema::NodePtr node = schema->Column(k)->schema_node();
-            std::vector<std::string> path = node->path()->ToDotVector();
-            char                     parquet_colname[255];
-
-            tolowercase(path[0].c_str(), parquet_colname);
-
-             // Compare postgres attribute name to the top level column name in
-             // parquet.
-             //
-             // XXX If we will ever want to support structs then this should be
-             // changed.
-            if (strcmp(pg_colname, parquet_colname) == 0)
-            {
-                PgTypeInfo typinfo;
-                bool       error = false;
-
-                // Found mapping!
-                this->indices.push_back(k);
-
-                // index of last element
-                this->map[i] = this->indices.size() - 1;
-
-                // this->types.push_back(this->schema->field(k)->type().get());
-                // columnTypes.push_back(this->schema->field(k)->type()->id());
-
-                // Find the element type in case the column type is array
-                PG_TRY();
-                {
-                    typinfo.oid       = TupleDescAttr(tupleDesc, i)->atttypid;
-                    typinfo.elem_type = get_element_type(typinfo.oid);
-
-                    if (OidIsValid(typinfo.elem_type))
-                    {
-                        get_typlenbyvalalign(typinfo.elem_type, &typinfo.elem_len,
-                                             &typinfo.elem_byval, &typinfo.elem_align);
-                    }
-                }
-                PG_CATCH();
-                {
-                    error = true;
-                }
-                PG_END_TRY();
-
-                if (error)
-                    throw Error("Failed to get the element type of column %s", pg_colname);
-
-                this->pg_types.push_back(typinfo);
-
-                break;
-            }
-        }
-    }
-    */
 
     std::copy(attrUseList.cbegin(), attrUseList.cend(), std::back_inserter(columnUseList));
-    // this->has_nulls = (bool *)exc_palloc(sizeof(bool) * this->map.size());
     this->allocator = new FastAllocator(cxt);
 }
 
@@ -213,10 +115,8 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
                 slot->tts_isnull[attr] = true;
             else
             {
-                // Removed castfuncs here since it seemed that they were only used on LIST type
-                // which we also removed.
-                slot->tts_values[attr] = this->read_primitive_type(columnChunk.get(),
-                                                                   columnTypes[attr], row, nullptr);
+                slot->tts_values[attr] =
+                        this->read_primitive_type(columnChunk.get(), columnTypes[attr], row);
                 slot->tts_isnull[attr] = false;
             }
         }
@@ -234,10 +134,7 @@ void ParquetFdwReader::rescan()
  * read_primitive_type
  *      Returns primitive type value from arrow array
  */
-Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
-                                            int           type_id,
-                                            int64_t       i,
-                                            FmgrInfo *    castfunc)
+Datum ParquetFdwReader::read_primitive_type(arrow::Array *array, int type_id, int64_t i)
 {
     Datum res;
 
@@ -329,124 +226,7 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
         throw Error("Unsupported column type: %d", type_id);
     }
 
-    /* Call cast function if needed */
-    if (castfunc != nullptr)
-    {
-        res = wrapped::CallFunction1(castfunc, res);
-    }
-
     return res;
-}
-
-/*
- * initialize_castfuncs
- *      Check wether implicit cast will be required and prepare cast function
- *      call. For arrays find cast functions for its elements.
- */
-void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
-{
-    throw Error("castfuncs init called");
-    /*
-    this->castfuncs.resize(this->map.size());
-
-    for (uint i = 0; i < this->map.size(); ++i)
-    {
-        MemoryContext ccxt      = CurrentMemoryContext;
-        int           arrow_col = this->map[i];
-        bool          error     = false;
-        char          errstr[ERROR_STR_LEN];
-
-        if (this->map[i] < 0)
-        {
-            // Null column
-            this->castfuncs[i] = nullptr;
-            continue;
-        }
-
-        arrow::DataType *type    = this->types[arrow_col];
-        int              type_id = type->id();
-        int              src_type, dst_type;
-        bool             src_is_list, dst_is_array;
-        Oid              funcid;
-        CoercionPathType ct;
-
-        // Find underlying type of list
-        src_is_list = (type_id == arrow::Type::LIST);
-        if (src_is_list)
-            throw Error("List type not supported");
-
-        src_type = to_postgres_type(type_id);
-        dst_type = TupleDescAttr(tupleDesc, i)->atttypid;
-
-        if (!OidIsValid(src_type))
-            throw Error("Unsupported column type: %s", type->name().c_str());
-
-        // Find underlying type of array
-        dst_is_array = type_is_array(dst_type);
-        if (dst_is_array)
-            dst_type = get_element_type(dst_type);
-
-        // Make sure both types are compatible
-        if (src_is_list != dst_is_array)
-        {
-            const auto column = this->table->field(arrow_col)->name().c_str();
-            if (src_is_list)
-                throw Error("Incompatible types in column %s: list vs scalar", column);
-            else
-                throw Error("Incompatible types in column %s: scalar vs array", column);
-        }
-
-        PG_TRY();
-        {
-            if (IsBinaryCoercible(src_type, dst_type))
-            {
-                this->castfuncs[i] = nullptr;
-            }
-            else
-            {
-                ct = find_coercion_pathway(dst_type, src_type, COERCION_EXPLICIT, &funcid);
-                switch (ct)
-                {
-                case COERCION_PATH_FUNC:
-                {
-                    MemoryContext oldctx;
-
-                    oldctx             = MemoryContextSwitchTo(CurTransactionContext);
-                    this->castfuncs[i] = (FmgrInfo *)palloc0(sizeof(FmgrInfo));
-                    fmgr_info(funcid, this->castfuncs[i]);
-                    MemoryContextSwitchTo(oldctx);
-                    break;
-                }
-                case COERCION_PATH_RELABELTYPE:
-                case COERCION_PATH_COERCEVIAIO: // TODO: double check that we
-                                                // shouldn't do anything here
-                    // Cast is not needed
-                    this->castfuncs[i] = nullptr;
-                    break;
-                default:
-                    throw Error("cast function to %s ('%s' column) is not found",
-                         format_type_be(dst_type), NameStr(TupleDescAttr(tupleDesc, i)->attname));
-                }
-            }
-        }
-        PG_CATCH();
-        {
-            ErrorData *errdata;
-
-            MemoryContextSwitchTo(ccxt);
-            error   = true;
-            errdata = CopyErrorData();
-            FlushErrorState();
-
-            strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
-            FreeErrorData(errdata);
-        }
-        PG_END_TRY();
-        if (error)
-            throw Error("%s", errstr);
-    }
-    this->initialized = true;
-    */
 }
 
 void ParquetFdwReader::set_rowgroups_list(const std::vector<int> &rowgroups)

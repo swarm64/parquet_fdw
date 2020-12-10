@@ -11,13 +11,11 @@ extern "C" {
 ParquetFdwExecutionState::ParquetFdwExecutionState(MemoryContext            cxt,
                                                    TupleDesc                tupleDesc,
                                                    const std::vector<bool> &attrUseList,
-                                                   // std::set<int> attrs_used,
-                                                   bool use_threads,
-                                                   bool use_mmap)
+                                                   bool                     use_threads,
+                                                   bool                     use_mmap)
     : cxt(cxt),
       tupleDesc(tupleDesc),
       attrUseList(attrUseList),
-      // attrs_used(std::move(attrs_used)),
       use_threads(use_threads),
       use_mmap(use_mmap),
       coord(new ReadCoordinator())
@@ -65,12 +63,6 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
     }
 
     return res;
-}
-
-void ParquetFdwExecutionState::rescan()
-{
-    throw std::runtime_error("rescan not implemented...");
-    // reader->rescan();
 }
 
 void ParquetFdwExecutionState::add_file(const char *filename, List *rowgroups)

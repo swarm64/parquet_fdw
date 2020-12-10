@@ -45,8 +45,6 @@ private:
     using tReadList      = std::vector<tReadListEntry>;
 
     tReadList readList;
-    // bool messageDone = false;
-    // ParquetFdwReader *get_next_reader();
 
 public:
     ParquetFdwExecutionState(MemoryContext            cxt,
@@ -59,7 +57,6 @@ public:
     ~ParquetFdwExecutionState();
 
     bool next(TupleTableSlot *slot, bool fake = false);
-    void rescan();
     void add_file(const char *filename, List *rowgroups);
     void set_coordinator(ReadCoordinator *coord);
     void fillReadList();
@@ -67,5 +64,12 @@ public:
     const std::vector<int> &getRowGroupsForFile(const int fileId) const
     {
         return files[fileId].rowgroups;
+    }
+
+    void rescan()
+    {
+        if (!coord)
+            Error("Coordinator not set");
+        coord->reset();
     }
 };

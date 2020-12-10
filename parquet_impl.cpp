@@ -1527,7 +1527,6 @@ extern "C" bool
 
 extern "C" Size parquetEstimateDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt)
 {
-    // Potentially wrong, should take amount of files/readers into account
     return sizeof(ReadCoordinator);
 }
 
@@ -1535,7 +1534,6 @@ extern "C" void parquetInitializeDSMForeignScan(ForeignScanState *node,
                                                 ParallelContext * pcxt,
                                                 void *            coordinate)
 {
-    // elog(WARNING, "Initialize DSM: %d", MyProcPid);
     ReadCoordinator *         coord = (ReadCoordinator *)coordinate;
     ParquetFdwExecutionState *festate;
 
@@ -1554,11 +1552,9 @@ extern "C" void parquetReInitializeDSMForeignScan(ForeignScanState *node,
 extern "C" void
         parquetInitializeWorkerForeignScan(ForeignScanState *node, shm_toc *toc, void *coordinate)
 {
-    // elog(WARNING, "Initialize worker: %d", MyProcPid);
     ReadCoordinator *         coord = (ReadCoordinator *)coordinate;
     ParquetFdwExecutionState *festate;
 
-    // coord = new(coordinate) ReadCoordinator;
     festate = (ParquetFdwExecutionState *)node->fdw_state;
     festate->set_coordinator(coord);
 }

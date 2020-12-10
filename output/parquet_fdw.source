@@ -207,7 +207,7 @@ SELECT * FROM example_func;
    3 |   4 | zwei
    5 |   6 | drei
    7 |   8 | vier
-   9 |  10 | fünf
+   9 |   0 | fünf
 (11 rows)
 
 -- invalid files_func options

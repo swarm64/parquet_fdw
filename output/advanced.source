@@ -101,4 +101,21 @@ ON lhs.one > 3 * rhs.seven;
                Row groups: 1, 2
 (9 rows)
 
+-- select with reordering
+SELECT five FROM example1 WHERE three LIKE '__o' ORDER BY four DESC;
+    five    
+------------
+ 2018-01-04
+ 2018-01-01
+(2 rows)
+
+SELECT five FROM
+    (SELECT * FROM example1 ORDER BY FOUR desc) intermediate
+    WHERE three LIKE '__o';
+    five    
+------------
+ 2018-01-04
+ 2018-01-01
+(2 rows)
+
 DROP EXTENSION parquet_fdw CASCADE;

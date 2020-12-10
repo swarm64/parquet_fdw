@@ -207,10 +207,15 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
             slot->tts_isnull[attr] = true;
         else
         {
-            // Removed castfuncs here since it seemed that they were only used on LIST type
-            // which we also removed.
-            slot->tts_values[attr] =
-                    this->read_primitive_type(columnChunk.get(), columnTypes[attr], row, nullptr);
+            if (columnChunk->IsNull(row))
+                slot->tts_isnull[attr] = true;
+            else {
+                // Removed castfuncs here since it seemed that they were only used on LIST type
+                // which we also removed.
+                slot->tts_values[attr] =
+                        this->read_primitive_type(columnChunk.get(), columnTypes[attr], row, nullptr);
+                slot->tts_isnull[attr] = false;
+            }
         }
     }
 }

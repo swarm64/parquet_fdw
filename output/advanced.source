@@ -79,4 +79,26 @@ ON lhs.one > 3 * rhs.seven;
      6 | tres    |       1 |     6 | tres    |       1
 (16 rows)
 
+EXPLAIN (COSTS OFF) SELECT 
+    lhs.one l_one,
+    lhs.three l_three,
+    lhs.seven l_seven,
+    rhs.one r_one,
+    rhs.three r_three,
+    rhs.seven r_seven
+FROM example1 lhs JOIN example1 rhs
+ON lhs.one > 3 * rhs.seven;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Nested Loop
+   Join Filter: ((lhs.one)::double precision > ('3'::double precision * rhs.seven))
+   ->  Foreign Scan on example1 lhs
+         Reader: Multifile
+         Row groups: 1, 2
+   ->  Materialize
+         ->  Foreign Scan on example1 rhs
+               Reader: Multifile
+               Row groups: 1, 2
+(9 rows)
+
 DROP EXTENSION parquet_fdw CASCADE;

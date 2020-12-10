@@ -46,5 +46,14 @@ SELECT
 FROM example1 lhs JOIN example1 rhs
 ON lhs.one > 3 * rhs.seven;
 
+EXPLAIN (COSTS OFF) SELECT 
+    lhs.one l_one,
+    lhs.three l_three,
+    lhs.seven l_seven,
+    rhs.one r_one,
+    rhs.three r_three,
+    rhs.seven r_seven
+FROM example1 lhs JOIN example1 rhs
+ON lhs.one > 3 * rhs.seven;
 
 DROP EXTENSION parquet_fdw CASCADE;

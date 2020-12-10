@@ -1964,9 +1964,17 @@ Datum convert_csv_to_parquet(PG_FUNCTION_ARGS)
     field_names      = PG_ARGISNULL(2) ? NULL : PG_GETARG_ARRAYTYPE_P(2);
     compression_type = PG_ARGISNULL(3) ? NULL : text_to_cstring(PG_GETARG_TEXT_P(3));
 
-    const int64_t numRows = ConvertCsvToParquet().convert(src_filepath, target_filepath,
-                                                          compression_type, field_names);
+    try
+    {
+        const int64_t numRows = ConvertCsvToParquet().convert(src_filepath, target_filepath,
+                                                              compression_type, field_names);
+        PG_RETURN_INT64(numRows);
+    }
+    catch (std::exception &e)
+    {
+        elog(ERROR, "converting csv to parquet failed: %s", e.what());
+    }
 
-    PG_RETURN_INT64(numRows);
+    PG_RETURN_VOID();
 }
 }

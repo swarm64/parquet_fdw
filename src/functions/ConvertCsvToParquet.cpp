@@ -1,4 +1,3 @@
-
 #include "arrow/api.h"
 #include "arrow/csv/reader.h"
 #include "arrow/io/api.h"
@@ -12,6 +11,7 @@ extern "C" {
 }
 
 #include "ConvertCsvToParquet.hpp"
+#include "../PostgresWrappers.hpp"
 
 #include <filesystem>
 
@@ -61,12 +61,13 @@ std::vector<std::string> ConvertCsvToParquet::textArrayToVector(ArrayType *array
     Datum *fieldsArray;
     bool * nulls;
     int    fieldsCount;
-    deconstruct_array(array, TEXTOID, -1, false, 'i', &fieldsArray, &nulls, &fieldsCount);
+
+    DeconstructArray(array, TEXTOID, -1, false, 'i', &fieldsArray, &nulls, &fieldsCount);
 
     std::vector<std::string> fields(fieldsCount);
     for (int i = 0; i < fieldsCount; i++)
     {
-        fields[i] = std::string(text_to_cstring(DatumGetTextP(fieldsArray[i])));
+        fields[i] = std::string(TextToCString(DatumGetTextP(fieldsArray[i])));
     }
     return fields;
 }

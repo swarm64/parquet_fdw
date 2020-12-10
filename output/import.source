@@ -43,7 +43,7 @@ select import_parquet('example_import', 'public', 'parquet_srv', 'list_parquet_f
  
 (1 row)
 
-SELECT * FROM example_sorted ORDER BY one, three;
+SELECT * FROM example_import ORDER BY one, three;
  one | two | three |        four         |    five    | six | seven 
 -----+-----+-------+---------------------+------------+-----+-------
    1 |   2 | eins  | 2018-01-01 00:00:00 | 2018-01-01 | t   |      

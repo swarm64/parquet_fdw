@@ -14,7 +14,7 @@ DATA = parquet_fdw--0.1.sql \
 	   parquet_fdw--0.1--0.2.sql \
 	   parquet_fdw--0.2--0.3.sql
 
-REGRESS = parquet_fdw import
+REGRESS = basic invalid files_func multifile advanced import
 
 EXTRA_CLEAN = sql/parquet_fdw.sql expected/parquet_fdw.out
 

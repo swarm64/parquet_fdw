@@ -1,0 +1,42 @@
+SET datestyle = 'ISO';
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
+CREATE EXTENSION parquet_fdw;
+DROP ROLE IF EXISTS regress_parquet_fdw;
+CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
+SET ROLE regress_parquet_fdw;
+CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
+CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
+SET ROLE regress_parquet_fdw;
+-- multiple sorting keys
+CREATE FOREIGN TABLE example_multisort (
+    one     INT8,
+    two     INT8,
+    three   TEXT,
+    four    TIMESTAMP,
+    five    DATE,
+    six     BOOL)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one five');
+EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
+               QUERY PLAN                
+-----------------------------------------
+ Sort
+   Sort Key: one, five
+   ->  Foreign Scan on example_multisort
+         Reader: Multifile
+         Row groups: 1, 2
+(5 rows)
+
+SELECT * FROM example_multisort ORDER BY one, five;
+ one | two | three |        four         |    five    | six 
+-----+-----+-------+---------------------+------------+-----
+   1 |   1 | foo   | 2018-01-01 00:00:00 | 2018-01-01 | t
+   2 |   2 | bar   | 2018-01-02 00:00:00 | 2018-01-02 | f
+   3 |   3 | baz   | 2018-01-03 00:00:00 | 2018-01-03 | t
+   4 |   4 | uno   | 2018-01-04 00:00:00 | 2018-01-04 | f
+   5 |   5 | dos   | 2018-01-05 00:00:00 | 2018-01-05 | f
+   6 |   6 | tres  | 2018-01-06 00:00:00 | 2018-01-06 | f
+(6 rows)
+
+DROP EXTENSION parquet_fdw CASCADE;

@@ -149,6 +149,26 @@ public:
 
     void initialize_castfuncs(TupleDesc tupleDesc);
 
+    static std::shared_ptr<arrow::Schema> GetSchema(const char *path)
+    {
+        std::unique_ptr<parquet::arrow::FileReader> reader;
+        auto                                        status = parquet::arrow::FileReader::Make(
+                arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(path, false),
+                &reader);
+
+        if (!status.ok())
+            return nullptr;
+
+        auto                           meta = reader->parquet_reader()->metadata();
+        parquet::ArrowReaderProperties props;
+        std::shared_ptr<arrow::Schema> schema;
+        status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
+        if (!status.ok())
+            return nullptr;
+
+        return schema;
+    }
+
     /*
      * copy_to_c_array
      *      memcpy plain values from Arrow array to a C array.

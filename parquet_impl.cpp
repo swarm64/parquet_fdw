@@ -378,6 +378,13 @@ static List *parse_filenames_list(const char *str)
     return filenames;
 }
 
+static void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> firstSchema,
+                              const std::shared_ptr<arrow::Schema> secondSchema)
+{
+    if (!firstSchema->Equals(*secondSchema))
+        elog(ERROR, "Parquet schemas mismatch");
+}
+
 static void validateSchema(const std::shared_ptr<arrow::Schema> schema, TupleDesc tupleDesc)
 {
     // Validate column types
@@ -409,19 +416,18 @@ List *extract_rowgroups_list(const char *               filename,
                              std::list<RowGroupFilter> &filters,
                              uint64 *                   ntuples) noexcept
 {
-    std::unique_ptr<parquet::arrow::FileReader> reader;
-    arrow::Status                               status;
-    List *                                      rowgroups = NIL;
+    List *rowgroups = NIL;
 
     /* Open parquet file to read meta information */
     try
     {
-        status = parquet::arrow::FileReader::Make(
+        std::unique_ptr<parquet::arrow::FileReader> reader;
+        auto                                        status = parquet::arrow::FileReader::Make(
                 arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(filename, false),
                 &reader);
 
         if (!status.ok())
-            elog(ERROR, "Could not open parquet file %s", status.message().c_str());
+            elog(ERROR, "Could not get parquet file reader: %s", status.message().c_str());
 
         auto                           meta = reader->parquet_reader()->metadata();
         parquet::ArrowReaderProperties props;
@@ -430,8 +436,6 @@ List *extract_rowgroups_list(const char *               filename,
         status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
         if (!status.ok())
             elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
-
-        validateSchema(schema, tupleDesc);
 
         /* Check each row group whether it matches the filters */
         for (int r = 0; r < reader->num_row_groups(); r++)
@@ -927,6 +931,28 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
 #endif
     tupleDesc = RelationGetDescr(rel);
 
+    try
+    {
+        std::shared_ptr<arrow::Schema> previousSchema;
+        foreach (lc, fdw_private->filenames)
+        {
+            char *     filename = strVal((Value *)lfirst(lc));
+            const auto schema   = ParquetFdwReader::GetSchema(filename);
+            if (!schema)
+                elog(ERROR, "Could not read get parquet file schema.");
+
+            if (previousSchema)
+                schemaMustBeEqual(schema, previousSchema);
+            else
+                validateSchema(schema, tupleDesc);
+            previousSchema = schema;
+        }
+    }
+    catch (std::exception &e)
+    {
+        elog(ERROR, "parquet_fdw: error validating schema: %s", e.what());
+    }
+
     /*
      * Extract list of row groups that match query clauses. Also calculate
      * approximate number of rows in result set based on total number of tuples
@@ -1321,12 +1347,12 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
     festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList,
                                            fdw_private.use_threads, false);
 
-    foreach (lc, fdw_private.filenames)
+    try
     {
-        char *filename = strVal((Value *)lfirst(lc));
-
-        try
+        std::shared_ptr<arrow::Schema> previousSchema;
+        foreach (lc, fdw_private.filenames)
         {
+            char *                                      filename = strVal((Value *)lfirst(lc));
             std::unique_ptr<parquet::arrow::FileReader> reader;
             arrow::Status                               status;
             List *                                      rowgroups = NIL;
@@ -1347,17 +1373,22 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
             if (!status.ok())
                 elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
 
-            validateSchema(schema, tupleDesc);
+            if (previousSchema)
+                schemaMustBeEqual(schema, previousSchema);
+            else
+                validateSchema(schema, tupleDesc);
+
+            previousSchema = schema;
 
             /* We need to scan all rowgroups */
             for (int i = 0; i < meta->num_row_groups(); ++i)
                 rowgroups = lappend_int(rowgroups, i);
             festate->add_file(filename, rowgroups);
         }
-        catch (const std::exception &e)
-        {
-            elog(ERROR, "parquet_fdw: %s", e.what());
-        }
+    }
+    catch (const std::exception &e)
+    {
+        elog(ERROR, "parquet_fdw: %s", e.what());
     }
 
     PG_TRY();

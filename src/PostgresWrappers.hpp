@@ -1,8 +1,8 @@
 #pragma once
 
 extern "C" {
-#include "postgres.h"
 #include "fmgr.h"
+#include "postgres.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 }
@@ -32,6 +32,6 @@ inline char *TextToCString(const text *t)
 
 inline Datum CallFunction1(FmgrInfo *flinfo, Datum arg1)
 {
-    return CatchAndRethrow([&](){ return FunctionCall1(flinfo, arg1); });
+    return CatchAndRethrow([&]() { return FunctionCall1(flinfo, arg1); });
 }
 }

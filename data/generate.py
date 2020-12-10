@@ -9,7 +9,7 @@ from datetime import datetime, date
 
 # row group 1
 df1 = pd.DataFrame({'one': [1, 2, 3],
-                    'two': [[1, 2, 3], [None, 5, 6], [7, 8, 9]],
+                    'two': [1, 2, 3],
                     'three': ['foo', 'bar', 'baz'],
                     'four': [datetime(2018, 1, 1),
                              datetime(2018, 1, 2),
@@ -23,7 +23,7 @@ table1 = pa.Table.from_pandas(df1)
 
 # row group 2
 df2 = pd.DataFrame({'one': [4, 5, 6],
-                    'two': [[10, 11, 12], [13, 14, 15], [16, 17, 18]],
+                    'two': [4, 5, 6],
                     'three': ['uno', 'dos', 'tres'],
                     'four': [datetime(2018, 1, 4),
                              datetime(2018, 1, 5),
@@ -41,7 +41,7 @@ with pq.ParquetWriter('example1.parquet', table1.schema) as writer:
 
 # example2.parquet file
 df3 = pd.DataFrame({'one': [1, 3, 5, 7, 9],
-                    'two': [[19, 20], [21, 22], [23, 24], [25, 26], [27, 28]],
+                    'two': [2, 4, 6, 8, 0],
                     'three': ['eins', 'zwei', 'drei', 'vier', 'fünf'],
                     'four': [datetime(2018, 1, 1),
                              datetime(2018, 1, 3),

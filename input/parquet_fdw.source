@@ -13,7 +13,7 @@ SET ROLE regress_parquet_fdw;
 
 CREATE FOREIGN TABLE example1 (
     one     INT8,
-    two     INT8[],
+    two     INT8,
     three   TEXT,
     four    TIMESTAMP,
     five    DATE,
@@ -52,12 +52,12 @@ execute prep('2018-01-01');
 
 -- invalid options
 SET client_min_messages = WARNING;
-CREATE FOREIGN TABLE example_fail (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
 SERVER parquet_srv;
-CREATE FOREIGN TABLE example_fail (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (filename 'nonexistent.parquet', some_option '123');
-CREATE FOREIGN TABLE example_fail (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet', some_option '123');
 
@@ -75,7 +75,7 @@ $$
     SELECT ARRAY[args->>'dir' || '/example1.parquet', args->>'dir' || '/example2.parquet']::TEXT[];
 $$
 LANGUAGE SQL;
-CREATE FOREIGN TABLE example_func (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_func (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (
     files_func 'list_parquet_files',
@@ -92,13 +92,13 @@ CREATE FUNCTION no_args_func()
 RETURNS TEXT[] AS
 $$ SELECT ARRAY['@abs_srcdir@/data/example1.parquet']::TEXT[]; $$
 LANGUAGE SQL;
-CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (files_func 'int_array_func');
-CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (files_func 'no_args_func');
-CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8[], three TEXT)
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (files_func 'list_parquet_files', files_func_arg 'invalid json');
 DROP FUNCTION list_parquet_files(JSONB);
@@ -108,7 +108,7 @@ DROP FUNCTION no_args_func();
 -- sequential multifile reader
 CREATE FOREIGN TABLE example_seq (
     one     INT8,
-    two     INT8[],
+    two     INT8,
     three   TEXT,
     four    TIMESTAMP,
     five    DATE,
@@ -122,7 +122,7 @@ SELECT * FROM example_seq;
 -- multifile merge reader
 CREATE FOREIGN TABLE example_sorted (
     one     INT8,
-    two     INT8[],
+    two     INT8,
     three   TEXT,
     four    TIMESTAMP,
     five    DATE,
@@ -150,7 +150,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY two;
 -- multiple sorting keys
 CREATE FOREIGN TABLE example_multisort (
     one     INT8,
-    two     INT8[],
+    two     INT8,
     three   TEXT,
     four    TIMESTAMP,
     five    DATE,

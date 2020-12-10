@@ -1,0 +1,32 @@
+SET datestyle = 'ISO';
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
+CREATE EXTENSION parquet_fdw;
+DROP ROLE IF EXISTS regress_parquet_fdw;
+CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
+
+SET ROLE regress_parquet_fdw;
+CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
+CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
+
+SET ROLE regress_parquet_fdw;
+
+-- invalid options
+SET client_min_messages = WARNING;
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
+SERVER parquet_srv;
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (filename 'nonexistent.parquet', some_option '123');
+CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet', some_option '123');
+
+-- type mismatch
+CREATE FOREIGN TABLE example_fail (one INT8[], two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+SELECT one FROM example_fail;
+SELECT two FROM example_fail;
+
+DROP EXTENSION parquet_fdw CASCADE;

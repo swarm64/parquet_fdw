@@ -1,13 +1,13 @@
-
 #include "ParquetFdwReader.hpp"
-// #include "Conversion.hpp"
+#include "PostgresWrappers.hpp"
 
 extern "C" {
+#include "postgres.h"
+
 #include "access/tupdesc.h"
 #include "executor/tuptable.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
-#include "postgres.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/date.h"
@@ -329,30 +329,7 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
     /* Call cast function if needed */
     if (castfunc != nullptr)
     {
-        MemoryContext ccxt  = CurrentMemoryContext;
-        bool          error = false;
-        Datum         res;
-        char          errstr[ERROR_STR_LEN];
-
-        PG_TRY();
-        {
-            res = FunctionCall1(castfunc, res);
-        }
-        PG_CATCH();
-        {
-            ErrorData *errdata;
-
-            MemoryContextSwitchTo(ccxt);
-            error   = true;
-            errdata = CopyErrorData();
-            FlushErrorState();
-
-            strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
-            FreeErrorData(errdata);
-        }
-        PG_END_TRY();
-        if (error)
-            elog(ERROR, "%s", errstr);
+        res = wrapped::CallFunction1(castfunc, res);
     }
 
     return res;

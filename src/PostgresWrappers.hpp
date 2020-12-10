@@ -2,11 +2,15 @@
 
 extern "C" {
 #include "postgres.h"
+#include "fmgr.h"
 #include "utils/array.h"
+#include "utils/builtins.h"
 }
 
 #include "PostgresErrors.hpp"
 
+namespace wrapped
+{
 inline void DeconstructArray(ArrayType *array,
                              Oid        elmtype,
                              int        elmlen,
@@ -24,4 +28,10 @@ inline void DeconstructArray(ArrayType *array,
 inline char *TextToCString(const text *t)
 {
     return CatchAndRethrow([&]() { return text_to_cstring(t); });
+}
+
+inline Datum CallFunction1(FmgrInfo *flinfo, Datum arg1)
+{
+    return CatchAndRethrow([&](){ return FunctionCall1(flinfo, arg1); });
+}
 }

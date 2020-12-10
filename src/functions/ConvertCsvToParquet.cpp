@@ -62,12 +62,12 @@ std::vector<std::string> ConvertCsvToParquet::textArrayToVector(ArrayType *array
     bool * nulls;
     int    fieldsCount;
 
-    DeconstructArray(array, TEXTOID, -1, false, 'i', &fieldsArray, &nulls, &fieldsCount);
+    wrapped::DeconstructArray(array, TEXTOID, -1, false, 'i', &fieldsArray, &nulls, &fieldsCount);
 
     std::vector<std::string> fields(fieldsCount);
     for (int i = 0; i < fieldsCount; i++)
     {
-        fields[i] = std::string(TextToCString(DatumGetTextP(fieldsArray[i])));
+        fields[i] = std::string(wrapped::TextToCString(DatumGetTextP(fieldsArray[i])));
     }
     return fields;
 }

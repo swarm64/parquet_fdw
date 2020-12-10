@@ -118,4 +118,16 @@ SELECT five FROM
  2018-01-01
 (2 rows)
 
+-- window function
+SELECT three, four, six, rank() OVER (PARTITION BY six ORDER BY four DESC) FROM example1;
+ three |        four         | six | rank 
+-------+---------------------+-----+------
+ tres  | 2018-01-06 00:00:00 | f   |    1
+ dos   | 2018-01-05 00:00:00 | f   |    2
+ uno   | 2018-01-04 00:00:00 | f   |    3
+ bar   | 2018-01-02 00:00:00 | f   |    4
+ baz   | 2018-01-03 00:00:00 | t   |    1
+ foo   | 2018-01-01 00:00:00 | t   |    2
+(6 rows)
+
 DROP EXTENSION parquet_fdw CASCADE;

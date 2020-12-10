@@ -63,4 +63,7 @@ SELECT five FROM
     (SELECT * FROM example1 ORDER BY FOUR desc) intermediate
     WHERE three LIKE '__o';
 
+-- window function
+SELECT three, four, six, rank() OVER (PARTITION BY six ORDER BY four DESC) FROM example1;
+
 DROP EXTENSION parquet_fdw CASCADE;

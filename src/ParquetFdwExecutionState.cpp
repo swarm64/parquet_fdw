@@ -1,8 +1,7 @@
-
-#include "ParquetFdwExecutionState.hpp"
-
+#include <sstream>
 #include <utility>
 
+#include "ParquetFdwExecutionState.hpp"
 #include "ReadCoordinator.hpp"
 
 extern "C" {
@@ -33,7 +32,7 @@ ParquetFdwExecutionState::~ParquetFdwExecutionState()
 bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
 {
     if (unlikely(coord == nullptr))
-        elog(ERROR, "Coordinator not set");
+        throw std::runtime_error("Coordinator not set");
 
     if (!currentReader || currentReader->finishedReadingRowGroup())
     {
@@ -44,10 +43,14 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
         const auto [readerId, rowGroupId] = readList[nextReadListItem];
 
         if (readerId >= (int)readers.size())
-            elog(ERROR, "%d Reader id %d out of range", MyProcPid, readerId);
+        {
+            std::stringstream ss;
+            ss << MyProcPid << " reader id " << readerId << " out of range";
+            throw std::runtime_error(ss.str());
+        }
 
         currentReader = readers[readerId];
-        // elog(WARNING, "Worker %d switches to %d %d", MyProcPid, readerId, rowGroupId);
+        // throw Error("Worker %d switches to %d %d", MyProcPid, readerId, rowGroupId);
         currentReader->prepareToReadRowGroup(rowGroupId, tupleDesc);
     }
 
@@ -66,7 +69,7 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
 
 void ParquetFdwExecutionState::rescan()
 {
-    elog(ERROR, "rescan not implemented...");
+    throw std::runtime_error("rescan not implemented...");
     // reader->rescan();
 }
 

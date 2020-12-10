@@ -90,7 +90,7 @@ public:
             }
             PG_END_TRY();
             if (error)
-                elog(ERROR, "Garbage segments recycle failed");
+                throw std::runtime_error("Garbage segments recycle failed");
 
             this->garbage_segments.clear();
             elog(DEBUG1, "parquet_fdw: garbage segments recycled");

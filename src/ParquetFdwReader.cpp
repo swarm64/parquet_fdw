@@ -1,19 +1,21 @@
 #include "ParquetFdwReader.hpp"
+#include "Error.hpp"
 #include "PostgresWrappers.hpp"
 
 extern "C" {
 #include "postgres.h"
 
-#include "access/tupdesc.h"
-#include "executor/tuptable.h"
-#include "miscadmin.h"
-#include "parser/parse_coerce.h"
-#include "utils/array.h"
-#include "utils/builtins.h"
 #include "utils/date.h"
-#include "utils/lsyscache.h"
-#include "utils/memutils.h"
 #include "utils/timestamp.h"
+
+// #include "access/tupdesc.h"
+// #include "executor/tuptable.h"
+// #include "miscadmin.h"
+// #include "parser/parse_coerce.h"
+// #include "utils/array.h"
+// #include "utils/builtins.h"
+// #include "utils/lsyscache.h"
+// #include "utils/memutils.h"
 }
 
 bool parquet_fdw_use_threads = true;
@@ -50,13 +52,13 @@ void ParquetFdwReader::open(const char *             filename,
             arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(filename, use_mmap),
             &reader);
     if (!status.ok())
-        elog(ERROR, "Failed to open parquet file: %s", status.message().c_str());
+        throw Error("Failed to open parquet file: %s", status.message().c_str());
 
     this->reader = std::move(reader);
 
     auto schema = this->reader->parquet_reader()->metadata()->schema();
     if (!parquet::arrow::FromParquetSchema(schema, props, &this->schema).ok())
-        elog(ERROR, "Error reading parquet schema.");
+        throw Error("Error reading parquet schema.");
 
     /* Enable parallel columns decoding/decompression if needed */
     this->reader->set_use_threads(use_threads && parquet_fdw_use_threads);
@@ -128,7 +130,7 @@ void ParquetFdwReader::open(const char *             filename,
                 PG_END_TRY();
 
                 if (error)
-                    elog(ERROR, "Failed to get the element type of column %s", pg_colname);
+                    throw Error("Failed to get the element type of column %s", pg_colname);
 
                 this->pg_types.push_back(typinfo);
 
@@ -158,12 +160,12 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
             const auto columnReader = reader->RowGroup(rowGroupId)->Column(columnIdx);
             const auto status       = columnReader->Read(&columnChunk);
             if (!status.ok())
-                elog(ERROR, "Could not read column %d in row group %d: %s", columnIdx, rowGroupId,
-                     status.message().c_str());
+                throw Error("Could not read column %d in row group %d: %s", columnIdx, rowGroupId,
+                            status.message().c_str());
 
             // Not sure on this one, possibly needs to support multiple chunks
             if (columnChunk->num_chunks() > 1)
-                elog(ERROR, "More than one chunk found.");
+                throw Error("More than one chunk found.");
 
             const auto array = columnChunk->chunk(0);
             columnChunks.push_back(array);
@@ -209,11 +211,12 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
         {
             if (columnChunk->IsNull(row))
                 slot->tts_isnull[attr] = true;
-            else {
+            else
+            {
                 // Removed castfuncs here since it seemed that they were only used on LIST type
                 // which we also removed.
-                slot->tts_values[attr] =
-                        this->read_primitive_type(columnChunk.get(), columnTypes[attr], row, nullptr);
+                slot->tts_values[attr] = this->read_primitive_type(columnChunk.get(),
+                                                                   columnTypes[attr], row, nullptr);
                 slot->tts_isnull[attr] = false;
             }
         }
@@ -323,7 +326,7 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
     }
     /* TODO: add other types */
     default:
-        elog(ERROR, "Unsupported column type: %d", type_id);
+        throw Error("Unsupported column type: %d", type_id);
     }
 
     /* Call cast function if needed */
@@ -342,7 +345,7 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array,
  */
 void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
 {
-    elog(ERROR, "castfuncs init called");
+    throw Error("castfuncs init called");
     /*
     this->castfuncs.resize(this->map.size());
 
@@ -370,13 +373,13 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         // Find underlying type of list
         src_is_list = (type_id == arrow::Type::LIST);
         if (src_is_list)
-            elog(ERROR, "List type not supported");
+            throw Error("List type not supported");
 
         src_type = to_postgres_type(type_id);
         dst_type = TupleDescAttr(tupleDesc, i)->atttypid;
 
         if (!OidIsValid(src_type))
-            elog(ERROR, "Unsupported column type: %s", type->name().c_str());
+            throw Error("Unsupported column type: %s", type->name().c_str());
 
         // Find underlying type of array
         dst_is_array = type_is_array(dst_type);
@@ -388,9 +391,9 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         {
             const auto column = this->table->field(arrow_col)->name().c_str();
             if (src_is_list)
-                elog(ERROR, "Incompatible types in column %s: list vs scalar", column);
+                throw Error("Incompatible types in column %s: list vs scalar", column);
             else
-                elog(ERROR, "Incompatible types in column %s: scalar vs array", column);
+                throw Error("Incompatible types in column %s: scalar vs array", column);
         }
 
         PG_TRY();
@@ -421,7 +424,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
                     this->castfuncs[i] = nullptr;
                     break;
                 default:
-                    elog(ERROR, "cast function to %s ('%s' column) is not found",
+                    throw Error("cast function to %s ('%s' column) is not found",
                          format_type_be(dst_type), NameStr(TupleDescAttr(tupleDesc, i)->attname));
                 }
             }
@@ -440,7 +443,7 @@ void ParquetFdwReader::initialize_castfuncs(TupleDesc tupleDesc)
         }
         PG_END_TRY();
         if (error)
-            elog(ERROR, "%s", errstr);
+            throw Error("%s", errstr);
     }
     this->initialized = true;
     */

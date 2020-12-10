@@ -1178,7 +1178,13 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         char *filename  = strVal((Value *)lfirst(lc));
         List *rowgroups = (List *)lfirst(lc2);
 
-        festate->add_file(filename, rowgroups);
+        try
+        {
+            festate->add_file(filename, rowgroups);
+        }
+        catch (std::exception &e)
+        {
+        }
     }
 
     festate->fillReadList();
@@ -1279,7 +1285,14 @@ extern "C" void parquetReScanForeignScan(ForeignScanState *node)
 {
     ParquetFdwExecutionState *festate = (ParquetFdwExecutionState *)node->fdw_state;
 
-    festate->rescan();
+    try
+    {
+        festate->rescan();
+    }
+    catch (std::exception &e)
+    {
+        elog(ERROR, "parquet_fdw: %s", e.what());
+    }
 }
 
 static int parquetAcquireSampleRowsFunc(Relation   relation,

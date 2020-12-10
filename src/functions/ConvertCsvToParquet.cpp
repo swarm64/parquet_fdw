@@ -1,3 +1,5 @@
+#include <filesystem>
+
 #include "arrow/api.h"
 #include "arrow/csv/reader.h"
 #include "arrow/io/api.h"
@@ -10,10 +12,9 @@ extern "C" {
 #include "utils/builtins.h"
 }
 
-#include "ConvertCsvToParquet.hpp"
+#include "../Error.hpp"
 #include "../PostgresWrappers.hpp"
-
-#include <filesystem>
+#include "ConvertCsvToParquet.hpp"
 
 static parquet::Compression::type getParquetCompressionType(const char *_compressionType)
 {
@@ -36,7 +37,7 @@ static parquet::Compression::type getParquetCompressionType(const char *_compres
     else if (compressionType == "ZSTD")
         return parquet::Compression::ZSTD;
     else
-        elog(ERROR, "Unsupported compression type: %s", compressionType.c_str());
+        throw Error("Unsupported compression type: %s", compressionType.c_str());
 
     return parquet::Compression::UNCOMPRESSED;
 }
@@ -48,7 +49,7 @@ int64_t ConvertCsvToParquet::convert(const char *srcFilePath,
 {
     const auto csvTableResult = getCsvTableReader(srcFilePath)->Read();
     if (!csvTableResult.ok())
-        elog(ERROR, "Could not read CSV file: %s", csvTableResult.status().ToString().c_str());
+        throw Error("Could not read CSV file: %s", csvTableResult.status().ToString().c_str());
 
     const auto csvTable = assignFieldNames(fieldNames, csvTableResult.ValueOrDie());
     writeParquetFile(targetFilePath, csvTable, compressionType);
@@ -77,12 +78,12 @@ std::shared_ptr<arrow::csv::TableReader>
 {
     std::filesystem::path src(src_filepath);
     if (!std::filesystem::exists(src))
-        elog(ERROR, "Source file does not exist");
+        throw Error("Source file does not exist");
 
     const auto inputSrcFileResult = arrow::io::ReadableFile::Open(src.native());
     if (!inputSrcFileResult.ok())
-        elog(ERROR, "Could not open CSV source file: %s",
-             inputSrcFileResult.status().ToString().c_str());
+        throw Error("Could not open CSV source file: %s",
+                    inputSrcFileResult.status().ToString().c_str());
 
     const auto inputSrcFile = inputSrcFileResult.ValueOrDie();
 
@@ -98,7 +99,7 @@ std::shared_ptr<arrow::csv::TableReader>
 
     if (csvReaderResult.ok())
         return csvReaderResult.ValueOrDie();
-    elog(ERROR, "Could not allocate CSV reader: %s", csvReaderResult.status().ToString().c_str());
+    throw Error("Could not allocate CSV reader: %s", csvReaderResult.status().ToString().c_str());
 }
 
 ConvertCsvToParquet::tArrowTablePtr
@@ -106,20 +107,20 @@ ConvertCsvToParquet::tArrowTablePtr
                                               const tArrowTablePtr targetTable)
 {
     if (!field_names || ARR_HASNULL(field_names))
-        elog(ERROR, "Field names not provided or incomplete");
+        throw Error("Field names not provided or incomplete");
 
     const auto     fieldNames = textArrayToVector(field_names);
     const uint64_t numColumns = targetTable->num_columns();
     if (numColumns != fieldNames.size())
-        elog(ERROR, "Column count does not match field name count (%lu vs. %lu)", numColumns,
-             fieldNames.size());
+        throw Error("Column count does not match field name count (%lu vs. %lu)", numColumns,
+                    fieldNames.size());
 
     const auto renamedColumnsTableResult = targetTable->RenameColumns(fieldNames);
     if (renamedColumnsTableResult.ok())
         return renamedColumnsTableResult.ValueOrDie();
 
-    elog(ERROR, "Could not assign provided column names: %s",
-         renamedColumnsTableResult.status().ToString().c_str());
+    throw Error("Could not assign provided column names: %s",
+                renamedColumnsTableResult.status().ToString().c_str());
 }
 
 void ConvertCsvToParquet::writeParquetFile(const char *   target_filepath,
@@ -130,12 +131,12 @@ void ConvertCsvToParquet::writeParquetFile(const char *   target_filepath,
 
     std::filesystem::path dest(target_filepath);
     if (std::filesystem::exists(dest))
-        elog(ERROR, "Target file does exist already");
+        throw Error("Target file does exist already");
 
     const auto outputDestFileResult = arrow::io::FileOutputStream::Open(dest.native());
     if (!outputDestFileResult.ok())
-        elog(ERROR, "Could not open target parquet file: %s",
-             outputDestFileResult.status().ToString().c_str());
+        throw Error("Could not open target parquet file: %s",
+                    outputDestFileResult.status().ToString().c_str());
     const auto outputDestFile = outputDestFileResult.ValueOrDie();
 
     parquet::WriterProperties::Builder builder;
@@ -145,10 +146,10 @@ void ConvertCsvToParquet::writeParquetFile(const char *   target_filepath,
     const auto writeParquetResult = parquet::arrow::WriteTable(
             *srcTable, arrow::default_memory_pool(), outputDestFile, 1000000, writerProperties);
     if (!writeParquetResult.ok())
-        elog(ERROR, "Could not write target parquet file: %s",
-             writeParquetResult.ToString().c_str());
+        throw Error("Could not write target parquet file: %s",
+                    writeParquetResult.ToString().c_str());
 
     const auto closeStatus = outputDestFile->Close();
     if (!closeStatus.ok())
-        elog(ERROR, "Could not close target parquet file: %s", closeStatus.ToString().c_str());
+        throw Error("Could not close target parquet file: %s", closeStatus.ToString().c_str());
 }

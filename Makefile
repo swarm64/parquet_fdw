@@ -1,5 +1,6 @@
 MODULE_big = parquet_fdw
 OBJS = parquet_impl.o parquet_fdw.o \
+	   src/Error.o \
 	   src/Misc.o \
 	   src/ParquetFdwReader.o \
 	   src/ParquetFdwExecutionState.o \

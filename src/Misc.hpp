@@ -23,6 +23,8 @@ using Size = size_t;
 #include "arrow/api.h"
 #include <list>
 
+#include "Error.hpp"
+
 #define SEGMENT_SIZE (1024 * 1024)
 
 #define ERROR_STR_LEN 512
@@ -43,7 +45,7 @@ using Size = size_t;
         ts = time_t_to_timestamptz((i) / 1000000000);                                              \
         break;                                                                                     \
     default:                                                                                       \
-        elog(ERROR, "Timestamp of unknown precision: %d", (tstype)->unit());                       \
+        throw Error("Timestamp of unknown precision: %d", (tstype)->unit());                       \
     }
 
 void *exc_palloc(Size size);

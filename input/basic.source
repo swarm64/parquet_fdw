@@ -50,4 +50,6 @@ prepare prep(date) as select * from example1 where five < $1;
 execute prep('2018-01-03');
 execute prep('2018-01-01');
 
+SET client_min_messages = WARNING;
+
 DROP EXTENSION parquet_fdw CASCADE;

@@ -8,7 +8,6 @@ SET ROLE regress_parquet_fdw;
 CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
 CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
 SET ROLE regress_parquet_fdw;
-
 -- invalid options
 SET client_min_messages = WARNING;
 CREATE FOREIGN TABLE example_fail (one INT8, two INT8, three TEXT)

@@ -159,4 +159,6 @@ DEBUG:  parquet_fdw: skip rowgroup 2
  one | two | three | four | five | six | seven 
 -----+-----+-------+------+------+-----+-------
 (0 rows)
+
+SET client_min_messages = WARNING;
 DROP EXTENSION parquet_fdw CASCADE;

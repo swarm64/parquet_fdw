@@ -144,6 +144,7 @@ struct ParquetFdwPlanState
  */
 static void extract_rowgroup_filters(List *scan_clauses, std::list<RowGroupFilter> &filters)
 {
+#if 0
     ListCell *lc;
 
     foreach (lc, scan_clauses)
@@ -252,6 +253,7 @@ static void extract_rowgroup_filters(List *scan_clauses, std::list<RowGroupFilte
             elog(ERROR, "extracting row filters failed: %s", e.what());
         }
     }
+#endif
 }
 
 /*

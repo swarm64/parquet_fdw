@@ -9,7 +9,7 @@ extern "C" {
 #include "utils/timestamp.h"
 }
 
-bool parquet_fdw_use_threads = true;
+bool parquet_fdw_use_threads = false;
 
 void ParquetFdwReader::open(const char *             filename,
                             MemoryContext            cxt,
@@ -34,9 +34,6 @@ void ParquetFdwReader::open(const char *             filename,
     auto schema = this->reader->parquet_reader()->metadata()->schema();
     if (!parquet::arrow::FromParquetSchema(schema, props, &this->schema).ok())
         throw Error("Error reading parquet schema.");
-
-    /* Enable parallel columns decoding/decompression if needed */
-    this->reader->set_use_threads(use_threads && parquet_fdw_use_threads);
 
     for (int i = 0; i < tupleDesc->natts; i++)
     {

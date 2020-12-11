@@ -59,8 +59,6 @@ extern bool parquet_fdw_use_threads;
 
 void _PG_init(void)
 {
-    DefineCustomBoolVariable("parquet_fdw.use_threads", "Enables use_thread option", NULL,
-                             &parquet_fdw_use_threads, true, PGC_USERSET, 0, NULL, NULL, NULL);
 }
 
 PG_FUNCTION_INFO_V1(parquet_fdw_validator);

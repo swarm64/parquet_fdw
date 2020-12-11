@@ -844,14 +844,6 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
                          errmsg("invalid value for boolean option \"%s\": %s", def->defname,
                                 defGetString(def))));
         }
-        else if (strcmp(def->defname, "use_threads") == 0)
-        {
-            if (!parse_bool(defGetString(def), &fdw_private->use_threads))
-                ereport(ERROR,
-                        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                         errmsg("invalid value for boolean option \"%s\": %s", def->defname,
-                                defGetString(def))));
-        }
         else
             elog(ERROR, "unknown option '%s'", def->defname);
     }
@@ -1748,17 +1740,6 @@ extern "C" Datum parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
             bool use_mmap;
 
             if (!parse_bool(defGetString(def), &use_mmap))
-                ereport(ERROR,
-                        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                         errmsg("invalid value for boolean option \"%s\": %s", def->defname,
-                                defGetString(def))));
-        }
-        else if (strcmp(def->defname, "use_threads") == 0)
-        {
-            /* Check that bool value is valid */
-            bool use_threads;
-
-            if (!parse_bool(defGetString(def), &use_threads))
                 ereport(ERROR,
                         (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                          errmsg("invalid value for boolean option \"%s\": %s", def->defname,

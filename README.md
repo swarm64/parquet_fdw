@@ -49,10 +49,9 @@ Following options are supported:
 * **filename** - space separated list of paths to Parquet files to read;
 * **sorted** - space separated list of columns that Parquet files are presorted by; that would help postgres to avoid redundant sorting when running query with `ORDER BY` clause or in other cases when having a presorted set is beneficial (Group Aggregate, Merge Join);
 * **use_mmap** - whether memory map operations will be used instead of file read operations (default `false`);
-* **use_threads** - enables `arrow`'s parallel columns decoding/decompression (default `false`).
 
 GUC variables:
-* **parquet_fdw.use_threads** - global switch that allow user to enable or disable threads (default `true`).
+* None
 
 Example:
 ```sql

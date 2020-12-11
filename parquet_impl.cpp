@@ -1377,6 +1377,8 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
                 rowgroups = lappend_int(rowgroups, i);
             festate->add_file(filename, rowgroups);
         }
+
+        festate->fillReadList();
     }
     catch (const std::exception &e)
     {

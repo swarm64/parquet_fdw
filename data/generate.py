@@ -53,8 +53,24 @@ df3 = pd.DataFrame({'one': [1, 3, 5, 7, 9],
                              date(2018, 1, 5),
                              date(2018, 1, 7),
                              date(2018, 1, 9)],
-                    'six': [True, False, True, False, True]})
+                    'six': [True, False, True, False, True],
+                    'seven': [0.1, None, None, None, None]})
 table3 = pa.Table.from_pandas(df3)
 
 with pq.ParquetWriter('example2.parquet', table3.schema) as writer:
     writer.write_table(table3)
+
+# example3.parquet file
+df4 = pd.DataFrame({'one': [1, 3],
+                    'two': [2, 4],
+                    'three': ['eins', 'zwei'],
+                    'four': [datetime(2018, 1, 1),
+                             datetime(2018, 1, 3),],
+                    'five': [date(2018, 1, 1),
+                             date(2018, 1, 3)],
+                    'six': [True, False]})
+table4 = pa.Table.from_pandas(df4)
+
+with pq.ParquetWriter('example3.parquet', table4.schema) as writer:
+    writer.write_table(table4)
+

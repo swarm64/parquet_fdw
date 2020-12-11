@@ -76,7 +76,6 @@ extern "C" {
 #endif
 }
 
-#include "src/Conversion.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/functions/ConvertCsvToParquet.hpp"
@@ -87,6 +86,33 @@ extern "C" {
 #if PG_VERSION_NUM < 110000
 #    define PG_GETARG_JSONB_P PG_GETARG_JSONB
 #endif
+
+static Oid to_postgres_type(int arrow_type)
+{
+    switch (arrow_type)
+    {
+    case arrow::Type::BOOL:
+        return BOOLOID;
+    case arrow::Type::INT32:
+        return INT4OID;
+    case arrow::Type::INT64:
+        return INT8OID;
+    case arrow::Type::FLOAT:
+        return FLOAT4OID;
+    case arrow::Type::DOUBLE:
+        return FLOAT8OID;
+    case arrow::Type::STRING:
+        return TEXTOID;
+    case arrow::Type::BINARY:
+        return BYTEAOID;
+    case arrow::Type::TIMESTAMP:
+        return TIMESTAMPOID;
+    case arrow::Type::DATE32:
+        return DATEOID;
+    default:
+        return InvalidOid;
+    }
+}
 
 static void  find_cmp_func(FmgrInfo *finfo, Oid type1, Oid type2);
 static Datum bytes_to_postgres_type(const char *bytes, arrow::DataType *arrow_type);

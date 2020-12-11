@@ -713,7 +713,7 @@ static List *parse_attributes_list(char *start, Oid relid)
     while ((token = strtok(start, delim)) != nullptr)
     {
         if ((attnum = get_attnum(relid, token)) == InvalidAttrNumber)
-            elog(ERROR, "paruqet_fdw: invalid attribute name '%s'", token);
+            elog(ERROR, "parqet_fdw: invalid attribute name '%s'", token);
         attrs = lappend_int(attrs, attnum);
         start = nullptr;
     }

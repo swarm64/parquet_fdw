@@ -1199,6 +1199,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         }
         catch (std::exception &e)
         {
+            elog(ERROR, "parquet_fdw: %s", e.what());
         }
     }
 

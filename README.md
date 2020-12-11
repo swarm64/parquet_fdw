@@ -92,19 +92,7 @@ create function import_parquet(
     userfunc    regproc,
     args        jsonb,
     options     jsonb)
-
-create function import_parquet_explicit(
-    tablename   text,
-    schemaname  text,
-    servername  text,
-    attnames    text[],
-    atttypes    regtype[],
-    userfunc    regproc,
-    args        jsonb,
-    options     jsonb)
 ```
-
-The only difference between `import_parquet` and `import_parquet_explicit` is that the latter allows to specify a set of attributes (columns) to import. `attnames` and `atttypes` here are the attributes names and attributes types arrays respectively (see the example below).
 
 `userfunc` is a user-defined function. It must take a `jsonb` argument and return a text array of filesystem paths to parquet files to be imported. `args` is user-specified jsonb object that is passed to `userfunc` as its argument. A simple implementation of such function and its usage may look like this:
 
@@ -120,12 +108,10 @@ end
 $$
 language plpgsql;
 
-select import_parquet_explicit(
+select import_parquet(
     'abc',
     'public',
     'parquet_srv',
-    array['one', 'three', 'six'],
-    array['int8', 'text', 'bool']::regtype[],
     'list_parquet_files',
     '{"dir": "/path/to/directory"}',
     '{"sorted": "one"}'

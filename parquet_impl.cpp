@@ -1809,48 +1809,6 @@ static List *jsonb_to_options_list(Jsonb *options)
     return res;
 }
 
-static List *array_to_fields_list(ArrayType *attnames, ArrayType *atttypes)
-{
-    List * res = NIL;
-    Datum *names;
-    Datum *types;
-    bool * nulls;
-    int    nnames;
-    int    ntypes;
-
-    if (!attnames || !atttypes)
-        elog(ERROR, "attnames and atttypes arrays must not be NULL");
-
-    if (ARR_HASNULL(attnames))
-        elog(ERROR, "attnames array must not contain NULLs");
-
-    if (ARR_HASNULL(atttypes))
-        elog(ERROR, "atttypes array must not contain NULLs");
-
-    deconstruct_array(attnames, TEXTOID, -1, false, 'i', &names, &nulls, &nnames);
-    deconstruct_array(atttypes, REGTYPEOID, 4, true, 'i', &types, &nulls, &ntypes);
-
-    if (nnames != ntypes)
-        elog(ERROR, "attnames and attypes arrays must have same length");
-
-    for (int i = 0; i < nnames; ++i)
-    {
-        FieldInfo *field = (FieldInfo *)palloc(sizeof(FieldInfo));
-        char *     attname;
-        attname = text_to_cstring(DatumGetTextP(names[i]));
-
-        if (strlen(attname) >= NAMEDATALEN)
-            elog(ERROR, "attribute name cannot be longer than %i", NAMEDATALEN - 1);
-
-        strcpy(field->name, attname);
-        field->oid = types[i];
-
-        res = lappend(res, field);
-    }
-
-    return res;
-}
-
 static void validate_import_args(const char *tablename, const char *servername, Oid funcoid)
 {
     if (!tablename)
@@ -1965,35 +1923,6 @@ Datum import_parquet(PG_FUNCTION_ARGS)
     options    = PG_ARGISNULL(5) ? nullptr : PG_GETARG_JSONB_P(5);
 
     import_parquet_internal(tablename, schemaname, servername, nullptr, funcid, arg, options);
-
-    PG_RETURN_VOID();
-}
-
-PG_FUNCTION_INFO_V1(import_parquet_with_attrs);
-Datum import_parquet_with_attrs(PG_FUNCTION_ARGS)
-{
-    char *     tablename;
-    char *     schemaname;
-    char *     servername;
-    ArrayType *attnames;
-    ArrayType *atttypes;
-    Oid        funcid;
-    Jsonb *    arg;
-    Jsonb *    options;
-    List *     fields;
-
-    tablename  = PG_ARGISNULL(0) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(0));
-    schemaname = PG_ARGISNULL(1) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(1));
-    servername = PG_ARGISNULL(2) ? nullptr : text_to_cstring(PG_GETARG_TEXT_P(2));
-    attnames   = PG_ARGISNULL(3) ? nullptr : PG_GETARG_ARRAYTYPE_P(3);
-    atttypes   = PG_ARGISNULL(4) ? nullptr : PG_GETARG_ARRAYTYPE_P(4);
-    funcid     = PG_ARGISNULL(5) ? InvalidOid : PG_GETARG_OID(5);
-    arg        = PG_ARGISNULL(6) ? nullptr : PG_GETARG_JSONB_P(6);
-    options    = PG_ARGISNULL(7) ? nullptr : PG_GETARG_JSONB_P(7);
-
-    fields = array_to_fields_list(attnames, atttypes);
-
-    import_parquet_internal(tablename, schemaname, servername, fields, funcid, arg, options);
 
     PG_RETURN_VOID();
 }

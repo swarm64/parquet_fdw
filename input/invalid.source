@@ -25,7 +25,7 @@ OPTIONS (filename '@abs_srcdir@/data/example1.parquet', some_option '123');
 -- type mismatch
 CREATE FOREIGN TABLE example_fail (one INT8[], two INT8, three TEXT)
 SERVER parquet_srv
-OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet');
 SELECT one FROM example_fail;
 SELECT two FROM example_fail;
 

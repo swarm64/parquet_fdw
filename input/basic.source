@@ -20,7 +20,7 @@ CREATE FOREIGN TABLE example1 (
     six     BOOL,
     seven   FLOAT8)
 SERVER parquet_srv
-OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet');
 
 SELECT * FROM example1;
 

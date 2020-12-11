@@ -17,7 +17,7 @@ CREATE FOREIGN TABLE example_multisort (
     five    DATE,
     six     BOOL)
 SERVER parquet_srv
-OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one five');
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet');
 EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
                QUERY PLAN                
 -----------------------------------------
@@ -49,7 +49,7 @@ CREATE FOREIGN TABLE example1 (
     six     BOOL,
     seven   FLOAT8)
 SERVER parquet_srv
-OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet');
 SELECT 
     lhs.one l_one,
     lhs.three l_three,

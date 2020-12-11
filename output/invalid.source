@@ -24,7 +24,7 @@ ERROR:  parquet_fdw: invalid option "some_option"
 -- type mismatch
 CREATE FOREIGN TABLE example_fail (one INT8[], two INT8, three TEXT)
 SERVER parquet_srv
-OPTIONS (filename '@abs_srcdir@/data/example1.parquet', sorted 'one');
+OPTIONS (filename '@abs_srcdir@/data/example1.parquet');
 SELECT one FROM example_fail;
 ERROR:  Type mismatch on column 'one'.
 SELECT two FROM example_fail;

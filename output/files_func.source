@@ -19,8 +19,7 @@ CREATE FOREIGN TABLE example_func (one INT8, two INT8, three TEXT)
 SERVER parquet_srv
 OPTIONS (
     files_func 'list_parquet_files',
-    files_func_arg '{"dir": "@abs_srcdir@/data"}',
-    sorted 'one');
+    files_func_arg '{"dir": "@abs_srcdir@/data"}');
 SELECT * FROM example_func;
  one | two | three 
 -----+-----+-------

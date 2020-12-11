@@ -47,7 +47,6 @@ Currently `parquet_fdw` doesn't support structs and nested lists.
 
 Following options are supported:
 * **filename** - space separated list of paths to Parquet files to read;
-* **sorted** - space separated list of columns that Parquet files are presorted by; that would help postgres to avoid redundant sorting when running query with `ORDER BY` clause or in other cases when having a presorted set is beneficial (Group Aggregate, Merge Join);
 * **use_mmap** - whether memory map operations will be used instead of file read operations (default `false`);
 
 GUC variables:
@@ -62,8 +61,7 @@ create foreign table userdata (
 )
 server parquet_srv
 options (
-    filename '/mnt/userdata1.parquet',
-    sorted 'id'
+    filename '/mnt/userdata1.parquet'
 );
 ```
 
@@ -113,8 +111,7 @@ select import_parquet(
     'public',
     'parquet_srv',
     'list_parquet_files',
-    '{"dir": "/path/to/directory"}',
-    '{"sorted": "one"}'
+    '{"dir": "/path/to/directory"}'
 );
 ```
 

@@ -11,8 +11,7 @@ SET ROLE regress_parquet_fdw;
 -- import foreign schema
 IMPORT FOREIGN SCHEMA "@abs_srcdir@/data"
 FROM SERVER parquet_srv
-INTO public
-OPTIONS (sorted 'one');
+INTO public;
 \d
 SELECT * FROM example2;
 
@@ -24,7 +23,7 @@ $$
 $$
 language sql;
 
-select import_parquet('example_import', 'public', 'parquet_srv', 'list_parquet_files', '{"dir": "@abs_srcdir@/data"}', '{"sorted": "one"}');
+select import_parquet('example_import', 'public', 'parquet_srv', 'list_parquet_files', '{"dir": "@abs_srcdir@/data"}');
 SELECT * FROM example_import ORDER BY one, three;
 
 DROP EXTENSION parquet_fdw CASCADE;

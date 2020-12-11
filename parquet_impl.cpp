@@ -700,28 +700,6 @@ static void destroy_parquet_state(void *arg)
 }
 
 /*
- * C interface functions
- */
-
-static List *parse_attributes_list(char *start, Oid relid)
-{
-    List *      attrs = NIL;
-    char *      token;
-    const char *delim = " ";
-    AttrNumber  attnum;
-
-    while ((token = strtok(start, delim)) != nullptr)
-    {
-        if ((attnum = get_attnum(relid, token)) == InvalidAttrNumber)
-            elog(ERROR, "paruqet_fdw: invalid attribute name '%s'", token);
-        attrs = lappend_int(attrs, attnum);
-        start = nullptr;
-    }
-
-    return attrs;
-}
-
-/*
  * OidFunctionCall1NullableArg
  *      Practically a copy-paste from FunctionCall1Coll with added capability
  *      of passing a NULL argument.
@@ -832,10 +810,6 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
         {
             funcarg = defGetString(def);
         }
-        else if (strcmp(def->defname, "sorted") == 0)
-        {
-            fdw_private->attrs_sorted = parse_attributes_list(defGetString(def), relid);
-        }
         else if (strcmp(def->defname, "use_mmap") == 0)
         {
             if (!parse_bool(defGetString(def), &fdw_private->use_mmap))
@@ -926,7 +900,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
     Cost                 startup_cost;
     Cost                 total_cost;
     Cost                 run_cost;
-    // bool        is_sorted, is_multi;
     List *                    pathkeys = NIL;
     RangeTblEntry *           rte;
     Relation                  rel;
@@ -935,8 +908,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
     ListCell *                lc;
 
     fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
-    // is_sorted = fdw_private->attrs_sorted != NIL;
-    // is_multi = list_length(fdw_private->filenames) > 1;
 
     /* Analyze query clauses and extract ones that can be of interest to us*/
     extract_rowgroup_filters(baserel->baserestrictinfo, filters);

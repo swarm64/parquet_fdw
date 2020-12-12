@@ -12,12 +12,10 @@ extern "C" {
 ParquetFdwExecutionState::ParquetFdwExecutionState(MemoryContext            cxt,
                                                    TupleDesc                tupleDesc,
                                                    const std::vector<bool> &attrUseList,
-                                                   bool                     use_threads,
                                                    bool                     use_mmap)
     : cxt(cxt),
       tupleDesc(tupleDesc),
       attrUseList(attrUseList),
-      use_threads(use_threads),
       use_mmap(use_mmap),
       coord(new ReadCoordinator())
 {

@@ -9,23 +9,24 @@ extern "C" {
 #include "utils/timestamp.h"
 }
 
-bool parquet_fdw_use_threads = false;
-
 ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
 {
+    parquet::ArrowReaderProperties              props;
+    props.set_use_threads(false);
+
     const bool mmap = true;
     const auto status = parquet::arrow::FileReader::Make(
-            arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(parquetFilePath, mmap),
+            arrow::default_memory_pool(),
+            parquet::ParquetFileReader::OpenFile(parquetFilePath, mmap),
+            props,
             &reader);
     if (!status.ok())
         throw Error("Failed to open parquet file: %s", status.message().c_str());
 
+    reader->set_use_threads(false);
     numRowGroups = reader->num_row_groups();
 
     metadata = reader->parquet_reader()->metadata();
-
-    parquet::ArrowReaderProperties              props;
-    props.set_use_threads(false);
 
     if (!parquet::arrow::FromParquetSchema(metadata->schema(), props, &schema).ok())
         throw Error("Error reading parquet schema.");

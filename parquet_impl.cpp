@@ -90,25 +90,17 @@ extern "C" {
 
 static void  destroy_parquet_state(void *arg);
 
-enum ReaderType
-{
-    RT_MULTI = 0
-};
-
 /*
  * Plain C struct for fdw_state
  */
 struct ParquetFdwPlanState
 {
-    List *     filenames; // 0
-    List *     attrs_sorted; // 1
-    Bitmapset *attrs_used; // 2 attributes actually used in query
-    bool       use_mmap; // 3
-    bool       use_threads; // 4
-    // List *     rowgroups; // List of Lists (per filename)
-    uint64     ntuples; // 5
-    ReaderType type; // 6
-    List * rowGroupsToSkip; // 7
+    List *     filenames;
+    List *     attrs_sorted;
+    Bitmapset *attrs_used; // attributes actually used in query
+    bool       use_mmap;
+    uint64     ntuples;
+    List * rowGroupsToSkip;
 };
 
 typedef enum {
@@ -116,8 +108,6 @@ typedef enum {
     FDW_PLAN_STATE_ATTRS_USED,
     FDW_PLAN_STATE_ATTRS_SORTED,
     FDW_PLAN_STATE_USE_MMAP,
-    FDW_PLAN_STATE_USE_THREADS,
-    FDW_PLAN_STATE_TYPE,
     FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP,
     FDW_PLAN_STATE_END__
 } FdwPlanStatePack;
@@ -209,29 +199,15 @@ struct FieldInfo
  */
 static List *extract_parquet_fields(const char *path) noexcept
 {
-    std::unique_ptr<parquet::arrow::FileReader> reader;
-    std::shared_ptr<arrow::Schema>              schema;
-    arrow::Status                               status;
     List *                                      res = NIL;
 
     try
     {
-        status = parquet::arrow::FileReader::Make(arrow::default_memory_pool(),
-                                                  parquet::ParquetFileReader::OpenFile(path, false),
-                                                  &reader);
-        if (!status.ok())
-            elog(ERROR, "Failed to open parquet file %s", status.message().c_str());
+        const auto schema = ParquetFdwReader(path).GetSchema();
+        const auto numFields = schema->num_fields();
 
-        auto                           meta = reader->parquet_reader()->metadata();
-        parquet::ArrowReaderProperties props;
-        FieldInfo *                    fields;
-
-        if (!parquet::arrow::FromParquetSchema(meta->schema(), props, &schema).ok())
-            elog(ERROR, "Error when reading parquet schema.");
-
-        fields = (FieldInfo *)exc_palloc(sizeof(FieldInfo) * schema->num_fields());
-
-        for (int k = 0; k < schema->num_fields(); ++k)
+        FieldInfo *fields = (FieldInfo *)exc_palloc(sizeof(FieldInfo) * numFields);
+        for (int k = 0; k < numFields; ++k)
         {
             std::shared_ptr<arrow::Field>    field;
             std::shared_ptr<arrow::DataType> type;
@@ -256,8 +232,6 @@ static List *extract_parquet_fields(const char *path) noexcept
     }
     catch (std::exception &e)
     {
-        /* Destroy the reader on error */
-        reader.reset();
         elog(ERROR, "parquet_fdw: %s", e.what());
     }
 
@@ -434,7 +408,6 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
     char *        funcarg  = nullptr;
 
     fdw_private->use_mmap    = false;
-    fdw_private->use_threads = false;
     table                    = GetForeignTable(relid);
 
     foreach (lc, table->options)
@@ -618,8 +591,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
     /* Collect used attributes to reduce number of read columns during scan */
     extract_used_attributes(baserel);
 
-    fdw_private->type = RT_MULTI;
-
     /* Build pathkeys based on attrs_sorted */
     foreach (lc, fdw_private->attrs_sorted)
     {
@@ -657,7 +628,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
 
         private_parallel = (ParquetFdwPlanState *)palloc(sizeof(ParquetFdwPlanState));
         memcpy(private_parallel, fdw_private, sizeof(ParquetFdwPlanState));
-        private_parallel->type = RT_MULTI;
 
         Path *parallel_path =
                 (Path *)create_foreignscan_path(root, baserel, nullptr, /* default pathtarget */
@@ -735,14 +705,6 @@ extern "C" ForeignScan *parquetGetForeignPlan(PlannerInfo *root,
                 params = lappend(params, makeInteger(fdw_private->use_mmap));
                 break;
 
-            case FDW_PLAN_STATE_USE_THREADS:
-                params = lappend(params, makeInteger(fdw_private->use_threads));
-                break;
-
-            case FDW_PLAN_STATE_TYPE:
-                params = lappend(params, makeInteger(fdw_private->type));
-                break;
-
             case FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP:
                 params = lappend(params, fdw_private->rowGroupsToSkip);
                 break;
@@ -772,9 +734,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     List *                    filenames    = NIL;
     List *                    attrs_sorted = NIL;
     bool                      use_mmap     = false;
-    bool                      use_threads  = false;
     int                       i            = 0;
-    ReaderType                reader_type  = RT_MULTI;
     List* rowGroupsToSkip;
 
     TupleTableSlot *slot        = node->ss.ss_ScanTupleSlot;
@@ -806,14 +766,6 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
 
         case FDW_PLAN_STATE_USE_MMAP:
             use_mmap = (bool)intVal((Value *)lfirst(lc));
-            break;
-
-        case FDW_PLAN_STATE_USE_THREADS:
-            use_threads = (bool)intVal((Value *)lfirst(lc));
-            break;
-
-        case FDW_PLAN_STATE_TYPE:
-            reader_type = (ReaderType)intVal((Value *)lfirst(lc));
             break;
 
         case FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP:
@@ -867,10 +819,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
         }
     }
 
-    if (reader_type != RT_MULTI)
-        elog(ERROR, "Unknown reader type %d", reader_type);
-
-    festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_threads, use_mmap);
+    festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_mmap);
 
     if (!filenames)
         elog(ERROR, "parquet_fdw: got an empty filenames list");
@@ -967,8 +916,7 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
 
     reader_cxt = AllocSetContextCreate(CurrentMemoryContext, "parquet_fdw tuple data",
                                        ALLOCSET_DEFAULT_SIZES);
-    festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList,
-                                           fdw_private.use_threads, false);
+    festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, false);
 
     try
     {
@@ -1064,17 +1012,12 @@ extern "C" void parquetExplainForeignScan(ForeignScanState *node, ExplainState *
     StringInfoData str;
     List *         filenames;
     List *         rowgroups_list;
-    ReaderType     reader_type;
 
     initStringInfo(&str);
 
     fdw_private    = ((ForeignScan *)node->ss.ps.plan)->fdw_private;
     filenames      = (List *)linitial(fdw_private);
-    reader_type    = (ReaderType)intVal((Value *)list_nth(fdw_private, 5));
     rowgroups_list = (List *)llast(fdw_private);
-
-    if (reader_type != RT_MULTI)
-        elog(ERROR, "Unknown reader type: %d", reader_type);
 
     ExplainPropertyText("Reader", "Multifile", es);
 
@@ -1182,7 +1125,6 @@ extern "C" List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid s
 
     while ((f = readdir(d)) != nullptr)
     {
-
         /* TODO: use lstat if d_type == DT_UNKNOWN */
         if (f->d_type == DT_REG)
         {

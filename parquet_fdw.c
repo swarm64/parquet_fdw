@@ -54,9 +54,6 @@ extern void  parquetShutdownForeignScan(ForeignScanState *node);
 extern List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid);
 extern Datum parquet_fdw_validator_impl(PG_FUNCTION_ARGS);
 
-/* GUC variable */
-extern bool parquet_fdw_use_threads;
-
 void _PG_init(void)
 {
 }

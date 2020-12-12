@@ -24,9 +24,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq;
 -----------------------------
  Foreign Scan on example_seq
    Reader: Multifile
-   Row groups: 
-     example1.parquet: 1, 2
-     example2.parquet: 1
+   Skipped row groups: 
+     example1.parquet: 
+     example2.parquet: 
 (5 rows)
 
 SELECT * FROM example_seq;
@@ -63,9 +63,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one, three;
    Sort Key: one, three
    ->  Foreign Scan on example_sorted
          Reader: Multifile
-         Row groups: 
-           example1.parquet: 1, 2
-           example2.parquet: 1
+         Skipped row groups: 
+           example1.parquet: 
+           example2.parquet: 
 (7 rows)
 
 SELECT * FROM example_sorted ORDER BY one, three;
@@ -96,7 +96,7 @@ CREATE FOREIGN TABLE example_mismatch (
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet @abs_srcdir@/data/example3.parquet');
 SELECT * FROM example_mismatch;
-ERROR:  Parquet schemas mismatch
+ERROR:  parquet_fdw: error validating schema: Parquet schemas do not match.
 -- schema mismatch, omit last column
 CREATE FOREIGN TABLE example_mismatch_omit_last (
     one     INT8,
@@ -108,7 +108,7 @@ CREATE FOREIGN TABLE example_mismatch_omit_last (
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/example1.parquet @abs_srcdir@/data/example3.parquet');
 SELECT * FROM example_mismatch_omit_last;
-ERROR:  Parquet schemas mismatch
+ERROR:  parquet_fdw: error validating schema: Parquet schemas do not match.
 -- parallel execution
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0.001;
@@ -123,9 +123,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq;
    Workers Planned: 2
    ->  Parallel Foreign Scan on example_seq
          Reader: Multifile
-         Row groups: 
-           example1.parquet: 1, 2
-           example2.parquet: 1
+         Skipped row groups: 
+           example1.parquet: 
+           example2.parquet: 
 (7 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY one;
@@ -137,9 +137,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY one;
          Sort Key: one
          ->  Parallel Foreign Scan on example_seq
                Reader: Multifile
-               Row groups: 
-                 example1.parquet: 1, 2
-                 example2.parquet: 1
+               Skipped row groups: 
+                 example1.parquet: 
+                 example2.parquet: 
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY two;
@@ -151,9 +151,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY two;
          Sort Key: two
          ->  Parallel Foreign Scan on example_seq
                Reader: Multifile
-               Row groups: 
-                 example1.parquet: 1, 2
-                 example2.parquet: 1
+               Skipped row groups: 
+                 example1.parquet: 
+                 example2.parquet: 
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted;
@@ -163,9 +163,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted;
    Workers Planned: 2
    ->  Parallel Foreign Scan on example_sorted
          Reader: Multifile
-         Row groups: 
-           example1.parquet: 1, 2
-           example2.parquet: 1
+         Skipped row groups: 
+           example1.parquet: 
+           example2.parquet: 
 (7 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
@@ -177,9 +177,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
          Sort Key: one
          ->  Parallel Foreign Scan on example_sorted
                Reader: Multifile
-               Row groups: 
-                 example1.parquet: 1, 2
-                 example2.parquet: 1
+               Skipped row groups: 
+                 example1.parquet: 
+                 example2.parquet: 
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY two;
@@ -191,9 +191,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY two;
          Sort Key: two
          ->  Parallel Foreign Scan on example_sorted
                Reader: Multifile
-               Row groups: 
-                 example1.parquet: 1, 2
-                 example2.parquet: 1
+               Skipped row groups: 
+                 example1.parquet: 
+                 example2.parquet: 
 (9 rows)
 
 DROP EXTENSION parquet_fdw CASCADE;

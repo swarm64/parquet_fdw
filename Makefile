@@ -4,6 +4,7 @@ OBJS = parquet_impl.o parquet_fdw.o \
 	   src/Misc.o \
 	   src/ParquetFdwReader.o \
 	   src/ParquetFdwExecutionState.o \
+	   src/FilterPushdown.o \
 	   src/functions/ConvertCsvToParquet.o
 
 PGFILEDESC = "parquet_fdw - foreign data wrapper for parquet"

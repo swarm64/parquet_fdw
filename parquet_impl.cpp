@@ -76,6 +76,7 @@ extern "C" {
 #endif
 }
 
+#include "src/FilterPushdown.hpp"
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/functions/ConvertCsvToParquet.hpp"
@@ -87,35 +88,6 @@ extern "C" {
 #    define PG_GETARG_JSONB_P PG_GETARG_JSONB
 #endif
 
-static Oid to_postgres_type(int arrow_type)
-{
-    switch (arrow_type)
-    {
-    case arrow::Type::BOOL:
-        return BOOLOID;
-    case arrow::Type::INT32:
-        return INT4OID;
-    case arrow::Type::INT64:
-        return INT8OID;
-    case arrow::Type::FLOAT:
-        return FLOAT4OID;
-    case arrow::Type::DOUBLE:
-        return FLOAT8OID;
-    case arrow::Type::STRING:
-        return TEXTOID;
-    case arrow::Type::BINARY:
-        return BYTEAOID;
-    case arrow::Type::TIMESTAMP:
-        return TIMESTAMPOID;
-    case arrow::Type::DATE32:
-        return DATEOID;
-    default:
-        return InvalidOid;
-    }
-}
-
-static void  find_cmp_func(FmgrInfo *finfo, Oid type1, Oid type2);
-static Datum bytes_to_postgres_type(const char *bytes, arrow::DataType *arrow_type);
 static void  destroy_parquet_state(void *arg);
 
 enum ReaderType
@@ -128,209 +100,27 @@ enum ReaderType
  */
 struct ParquetFdwPlanState
 {
-    List *     filenames;
-    List *     attrs_sorted;
-    Bitmapset *attrs_used; /* attributes actually used in query */
-    bool       use_mmap;
-    bool       use_threads;
-    List *     rowgroups; /* List of Lists (per filename) */
-    uint64     ntuples;
-    ReaderType type;
+    List *     filenames; // 0
+    List *     attrs_sorted; // 1
+    Bitmapset *attrs_used; // 2 attributes actually used in query
+    bool       use_mmap; // 3
+    bool       use_threads; // 4
+    // List *     rowgroups; // List of Lists (per filename)
+    uint64     ntuples; // 5
+    ReaderType type; // 6
+    List * rowGroupsToSkip; // 7
 };
 
-/*
- * extract_rowgroup_filters
- *      Build a list of expressions we can use to filter out row groups.
- */
-static void extract_rowgroup_filters(List *scan_clauses, std::list<RowGroupFilter> &filters)
-{
-#if 0
-    ListCell *lc;
-
-    foreach (lc, scan_clauses)
-    {
-        TypeCacheEntry *tce;
-        Expr *          clause = (Expr *)lfirst(lc);
-        OpExpr *        expr;
-        Expr *          left, *right;
-        int             strategy;
-        Const *         c;
-        Var *           v;
-        Oid             opno;
-
-        if (IsA(clause, RestrictInfo))
-            clause = ((RestrictInfo *)clause)->clause;
-
-        if (IsA(clause, OpExpr))
-        {
-            expr = (OpExpr *)clause;
-
-            /* Only interested in binary opexprs */
-            if (list_length(expr->args) != 2)
-                continue;
-
-            left  = (Expr *)linitial(expr->args);
-            right = (Expr *)lsecond(expr->args);
-
-            /*
-             * Looking for expressions like "EXPR OP CONST" or "CONST OP EXPR"
-             *
-             * XXX Currently only Var as expression is supported. Will be
-             * extended in future.
-             */
-            if (IsA(right, Const))
-            {
-                if (!IsA(left, Var))
-                    continue;
-                v    = (Var *)left;
-                c    = (Const *)right;
-                opno = expr->opno;
-            }
-            else if (IsA(left, Const))
-            {
-                /* reverse order (CONST OP VAR) */
-                if (!IsA(right, Var))
-                    continue;
-                v    = (Var *)right;
-                c    = (Const *)left;
-                opno = get_commutator(expr->opno);
-            }
-            else
-                continue;
-
-            /* TODO */
-            tce      = lookup_type_cache(exprType((Node *)left), TYPECACHE_BTREE_OPFAMILY);
-            strategy = get_op_opfamily_strategy(opno, tce->btree_opf);
-
-            /* Not a btree family operator? */
-            if (strategy == 0)
-                continue;
-        }
-        else if (IsA(clause, Var))
-        {
-            /*
-             * Trivial expression containing only a single boolean Var. This
-             * also covers cases "BOOL_VAR = true"
-             * */
-            v        = (Var *)clause;
-            strategy = BTEqualStrategyNumber;
-            c        = (Const *)makeBoolConst(true, false);
-        }
-        else if (IsA(clause, BoolExpr))
-        {
-            /*
-             * Similar to previous case but for expressions like "!BOOL_VAR" or
-             * "BOOL_VAR = false"
-             */
-            BoolExpr *boolExpr = (BoolExpr *)clause;
-
-            if (boolExpr->args && list_length(boolExpr->args) != 1)
-                continue;
-
-            if (!IsA(linitial(boolExpr->args), Var))
-                continue;
-
-            v        = (Var *)linitial(boolExpr->args);
-            strategy = BTEqualStrategyNumber;
-            c        = (Const *)makeBoolConst(false, false);
-        }
-        else
-            continue;
-
-        RowGroupFilter f{
-                .attnum   = v->varattno,
-                .value    = c,
-                .strategy = strategy,
-        };
-
-        /* potentially inserting elements may throw exceptions */
-        try
-        {
-            filters.push_back(f);
-        }
-        catch (std::exception &e)
-        {
-            elog(ERROR, "extracting row filters failed: %s", e.what());
-        }
-    }
-#endif
-}
-
-/*
- * row_group_matches_filter
- *      Check if min/max values of the column of the row group match filter.
- */
-static bool row_group_matches_filter(parquet::Statistics *stats,
-                                     arrow::DataType *    arrow_type,
-                                     RowGroupFilter *     filter)
-{
-    FmgrInfo finfo;
-    Datum    val      = filter->value->constvalue;
-    int      collid   = filter->value->constcollid;
-    int      strategy = filter->strategy;
-
-    find_cmp_func(&finfo, filter->value->consttype, to_postgres_type(arrow_type->id()));
-
-    switch (filter->strategy)
-    {
-    case BTLessStrategyNumber:
-    case BTLessEqualStrategyNumber:
-    {
-        Datum lower;
-        int   cmpres;
-        bool  satisfies;
-
-        lower  = bytes_to_postgres_type(stats->EncodeMin().c_str(), arrow_type);
-        cmpres = FunctionCall2Coll(&finfo, collid, val, lower);
-
-        satisfies = (strategy == BTLessStrategyNumber && cmpres > 0)
-                || (strategy == BTLessEqualStrategyNumber && cmpres >= 0);
-
-        if (!satisfies)
-            return false;
-        break;
-    }
-
-    case BTGreaterStrategyNumber:
-    case BTGreaterEqualStrategyNumber:
-    {
-        Datum upper;
-        int   cmpres;
-        bool  satisfies;
-
-        upper  = bytes_to_postgres_type(stats->EncodeMax().c_str(), arrow_type);
-        cmpres = FunctionCall2Coll(&finfo, collid, val, upper);
-
-        satisfies = (strategy == BTGreaterStrategyNumber && cmpres < 0)
-                || (strategy == BTGreaterEqualStrategyNumber && cmpres <= 0);
-
-        if (!satisfies)
-            return false;
-        break;
-    }
-
-    case BTEqualStrategyNumber:
-    {
-        Datum lower, upper;
-
-        lower = bytes_to_postgres_type(stats->EncodeMin().c_str(), arrow_type);
-        upper = bytes_to_postgres_type(stats->EncodeMax().c_str(), arrow_type);
-
-        int l = FunctionCall2Coll(&finfo, collid, val, lower);
-        int u = FunctionCall2Coll(&finfo, collid, val, upper);
-
-        if (l < 0 || u > 0)
-            return false;
-        break;
-    }
-
-    default:
-        /* should not happen */
-        Assert(true);
-    }
-
-    return true;
-}
+typedef enum {
+    FDW_PLAN_STATE_FILENAMES = 0,
+    FDW_PLAN_STATE_ATTRS_USED,
+    FDW_PLAN_STATE_ATTRS_SORTED,
+    FDW_PLAN_STATE_USE_MMAP,
+    FDW_PLAN_STATE_USE_THREADS,
+    FDW_PLAN_STATE_TYPE,
+    FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP,
+    FDW_PLAN_STATE_END__
+} FdwPlanStatePack;
 
 typedef enum
 {
@@ -406,155 +196,6 @@ static List *parse_filenames_list(const char *str)
     return filenames;
 }
 
-static void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> firstSchema,
-                              const std::shared_ptr<arrow::Schema> secondSchema)
-{
-    if (!firstSchema->Equals(*secondSchema))
-        elog(ERROR, "Parquet schemas mismatch");
-}
-
-static void validateSchema(const std::shared_ptr<arrow::Schema> schema, TupleDesc tupleDesc)
-{
-    // Validate column types
-    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
-    {
-        const auto attr             = tupleDesc->attrs[numAttr];
-        const auto expectedPgTypeId = attr.atttypid;
-
-        const auto field       = schema->field(numAttr);
-        const auto arrowTypeId = field->type()->id();
-        const auto pgTypeId    = to_postgres_type(arrowTypeId);
-
-        if (pgTypeId == InvalidOid)
-            elog(ERROR, "Type on column '%s' currently not supported.", NameStr(attr.attname));
-
-        if (pgTypeId != expectedPgTypeId)
-            elog(ERROR, "Type mismatch on column '%s'.", NameStr(attr.attname));
-    }
-}
-
-/*
- * extract_rowgroups_list
- *      Analyze query predicates and using min/max statistics determine which
- *      row groups satisfy clauses. Store resulting row group list to
- *      fdw_private.
- */
-List *extract_rowgroups_list(const char *               filename,
-                             TupleDesc                  tupleDesc,
-                             std::list<RowGroupFilter> &filters,
-                             uint64 *                   ntuples) noexcept
-{
-    List *rowgroups = NIL;
-
-    /* Open parquet file to read meta information */
-    try
-    {
-        std::unique_ptr<parquet::arrow::FileReader> reader;
-        auto                                        status = parquet::arrow::FileReader::Make(
-                arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(filename, false),
-                &reader);
-
-        if (!status.ok())
-            elog(ERROR, "Could not get parquet file reader: %s", status.message().c_str());
-
-        auto                           meta = reader->parquet_reader()->metadata();
-        parquet::ArrowReaderProperties props;
-        std::shared_ptr<arrow::Schema> schema;
-
-        status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
-        if (!status.ok())
-            elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
-
-        /* Check each row group whether it matches the filters */
-        for (int r = 0; r < reader->num_row_groups(); r++)
-        {
-            bool match    = true;
-            auto rowgroup = meta->RowGroup(r);
-
-            for (auto &filter : filters)
-            {
-                AttrNumber  attnum;
-                const char *attname;
-
-                attnum  = filter.attnum - 1;
-                attname = NameStr(TupleDescAttr(tupleDesc, attnum)->attname);
-
-                /*
-                 * Search for the column with the same name as filtered attribute
-                 */
-                for (int k = 0; k < rowgroup->num_columns(); k++)
-                {
-                    auto                     column = rowgroup->ColumnChunk(k);
-                    std::vector<std::string> path   = column->path_in_schema()->ToDotVector();
-
-                    if (strcmp(attname, path[0].c_str()) == 0)
-                    {
-                        /* Found it! */
-                        std::shared_ptr<parquet::Statistics> stats;
-                        std::shared_ptr<arrow::Field>        field;
-                        std::shared_ptr<arrow::DataType>     type;
-                        MemoryContext                        ccxt  = CurrentMemoryContext;
-                        bool                                 error = false;
-                        char                                 errstr[ERROR_STR_LEN];
-
-                        stats = column->statistics();
-
-                        /* Convert to arrow field to get appropriate type */
-                        field = schema->field(k);
-                        type  = field->type();
-
-                        PG_TRY();
-                        {
-                            /*
-                             * If at least one filter doesn't match rowgroup exclude
-                             * the current row group and proceed with the next one.
-                             */
-                            if (stats
-                                && !row_group_matches_filter(stats.get(), type.get(), &filter))
-                            {
-                                match = false;
-                                elog(DEBUG1, "parquet_fdw: skip rowgroup %d", r + 1);
-                            }
-                        }
-                        PG_CATCH();
-                        {
-                            ErrorData *errdata;
-
-                            MemoryContextSwitchTo(ccxt);
-                            error   = true;
-                            errdata = CopyErrorData();
-                            FlushErrorState();
-
-                            strncpy(errstr, errdata->message, ERROR_STR_LEN - 1);
-                            FreeErrorData(errdata);
-                        }
-                        PG_END_TRY();
-                        if (error)
-                            elog(ERROR, "Row group filter match failed: %s", errstr);
-                        break;
-                    }
-                } /* loop over columns */
-
-                if (!match)
-                    break;
-
-            } /* loop over filters */
-
-            /* All the filters match this rowgroup */
-            if (match)
-            {
-                /* TODO: PG_TRY */
-                rowgroups = lappend_int(rowgroups, r);
-                *ntuples += rowgroup->num_rows();
-            }
-        } /* loop over rowgroups */
-    }
-    catch (const std::exception &e)
-    {
-        elog(ERROR, "parquet_fdw: failed to exctract row groups from Parquet file: %s", e.what());
-    }
-    return rowgroups;
-}
 
 struct FieldInfo
 {
@@ -600,7 +241,7 @@ static List *extract_parquet_fields(const char *path) noexcept
             field = schema->field(k);
             type  = field->type();
 
-            pg_type = to_postgres_type(type->id());
+            pg_type = FilterPushdown::arrowTypeToPostgresType(type->id());
             if (pg_type == InvalidOid)
                 elog(ERROR, "Cannot convert field %s of type %s in %s", field->name().c_str(),
                      type->name().c_str(), path);
@@ -906,13 +547,10 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
     RangeTblEntry *           rte;
     Relation                  rel;
     TupleDesc                 tupleDesc;
-    std::list<RowGroupFilter> filters;
-    ListCell *                lc;
+    ListCell *                lc, *lc2;
 
     fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
-
-    /* Analyze query clauses and extract ones that can be of interest to us*/
-    extract_rowgroup_filters(baserel->baserestrictinfo, filters);
+    fdw_private->rowGroupsToSkip = NIL;
 
     rte = root->simple_rte_array[baserel->relid];
 #if PG_VERSION_NUM < 120000
@@ -928,15 +566,28 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         foreach (lc, fdw_private->filenames)
         {
             char *     filename = strVal((Value *)lfirst(lc));
-            const auto schema   = ParquetFdwReader::GetSchema(filename);
-            if (!schema)
-                elog(ERROR, "Could not read get parquet file schema.");
+            const auto reader = ParquetFdwReader(filename);
 
             if (previousSchema)
-                schemaMustBeEqual(schema, previousSchema);
+                reader.schemaMustBeEqual(previousSchema);
             else
-                validateSchema(schema, tupleDesc);
-            previousSchema = schema;
+                reader.validateSchema(tupleDesc);
+
+            FilterPushdown filterPushdown(reader.getNumRowGroups());
+            filterPushdown.extract_rowgroup_filters(baserel->baserestrictinfo);
+
+            /*
+             * Extract list of row groups that match query clauses. Also calculate
+             * approximate number of rows in result set based on total number of tuples
+             * in those row groups. It isn't very precise but it is best we got.
+             */
+            List *thisFileSkipList = filterPushdown.getRowGroupSkipListAndUpdateTupleCount(filename, tupleDesc, &(fdw_private->ntuples));
+            foreach(lc2, thisFileSkipList) {
+                elog(DEBUG1, "parquet_fdw: skip rowgroup %d", lfirst_int(lc2));
+            }
+            fdw_private->rowGroupsToSkip = lappend(fdw_private->rowGroupsToSkip, thisFileSkipList);
+
+            previousSchema = reader.GetSchema();
         }
     }
     catch (std::exception &e)
@@ -944,19 +595,18 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         elog(ERROR, "parquet_fdw: error validating schema: %s", e.what());
     }
 
-    /*
-     * Extract list of row groups that match query clauses. Also calculate
-     * approximate number of rows in result set based on total number of tuples
-     * in those row groups. It isn't very precise but it is best we got.
-     */
+/*
     foreach (lc, fdw_private->filenames)
     {
         char *filename = strVal((Value *)lfirst(lc));
-        List *rowgroups =
-                extract_rowgroups_list(filename, tupleDesc, filters, &fdw_private->ntuples);
-
-        fdw_private->rowgroups = lappend(fdw_private->rowgroups, rowgroups);
+        // FIXME: TRY/CATCH
+        List *rowgroups = filterPushdown.extract_rowgroups_list(filename, tupleDesc, &fdw_private->ntuples);
+        if (!rowgroups)
+            elog(WARNING, "No rowgroups");
+        // fdw_private->rowgroups = lappend(fdw_private->rowgroups, rowgroups);
+        fdw_private->filterPushdown = filterPushdown;
     }
+*/
 #if PG_VERSION_NUM < 120000
     heap_close(rel, AccessShareLock);
 #else
@@ -1067,13 +717,40 @@ extern "C" ForeignScan *parquetGetForeignPlan(PlannerInfo *root,
         attrs_sorted = lappend_int(attrs_sorted, lfirst_int(lc));
 
     /* Packing all the data needed by executor into the list */
-    params = lappend(params, fdw_private->filenames);
-    params = lappend(params, attrs_used);
-    params = lappend(params, attrs_sorted);
-    params = lappend(params, makeInteger(fdw_private->use_mmap));
-    params = lappend(params, makeInteger(fdw_private->use_threads));
-    params = lappend(params, makeInteger(fdw_private->type));
-    params = lappend(params, fdw_private->rowgroups);
+    for (int item = 0; item < FDW_PLAN_STATE_END__; ++item) {
+        switch (item) {
+            case FDW_PLAN_STATE_FILENAMES:
+                params = lappend(params, fdw_private->filenames);
+                break;
+
+            case FDW_PLAN_STATE_ATTRS_USED:
+                params = lappend(params, attrs_used);
+                break;
+
+            case FDW_PLAN_STATE_ATTRS_SORTED:
+                params = lappend(params, attrs_sorted);
+                break;
+
+            case FDW_PLAN_STATE_USE_MMAP:
+                params = lappend(params, makeInteger(fdw_private->use_mmap));
+                break;
+
+            case FDW_PLAN_STATE_USE_THREADS:
+                params = lappend(params, makeInteger(fdw_private->use_threads));
+                break;
+
+            case FDW_PLAN_STATE_TYPE:
+                params = lappend(params, makeInteger(fdw_private->type));
+                break;
+
+            case FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP:
+                params = lappend(params, fdw_private->rowGroupsToSkip);
+                break;
+
+            default:
+                elog(ERROR, "FDW plan state item missing: %d", item);
+        }
+    }
 
     /* Create the ForeignScan node */
     return make_foreignscan(tlist, scan_clauses, scan_relid, NIL, /* no expressions to evaluate */
@@ -1091,7 +768,6 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     EState *                  estate      = node->ss.ps.state;
     List *                    fdw_private = plan->fdw_private;
     List *                    attrs_list;
-    List *                    rowgroups_list = NIL;
     ListCell *                lc, *lc2;
     List *                    filenames    = NIL;
     List *                    attrs_sorted = NIL;
@@ -1099,9 +775,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     bool                      use_threads  = false;
     int                       i            = 0;
     ReaderType                reader_type  = RT_MULTI;
-
-    // elog(WARNING, "%d Begin foreign scan", MyProcPid);
-    //
+    List* rowGroupsToSkip;
 
     TupleTableSlot *slot        = node->ss.ss_ScanTupleSlot;
     TupleDesc       tupleDesc   = slot->tts_tupleDescriptor;
@@ -1112,10 +786,11 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     {
         switch (i)
         {
-        case 0:
+        case FDW_PLAN_STATE_FILENAMES:
             filenames = (List *)lfirst(lc);
             break;
-        case 1:
+
+        case FDW_PLAN_STATE_ATTRS_USED:
             attrs_list = (List *)lfirst(lc);
             foreach (lc2, attrs_list)
             {
@@ -1124,21 +799,32 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
                 attrUseList[attNum] = true;
             }
             break;
-        case 2:
+
+        case FDW_PLAN_STATE_ATTRS_SORTED:
             attrs_sorted = (List *)lfirst(lc);
             break;
-        case 3:
+
+        case FDW_PLAN_STATE_USE_MMAP:
             use_mmap = (bool)intVal((Value *)lfirst(lc));
             break;
-        case 4:
+
+        case FDW_PLAN_STATE_USE_THREADS:
             use_threads = (bool)intVal((Value *)lfirst(lc));
             break;
-        case 5:
+
+        case FDW_PLAN_STATE_TYPE:
             reader_type = (ReaderType)intVal((Value *)lfirst(lc));
             break;
-        case 6:
-            rowgroups_list = (List *)lfirst(lc);
+
+        case FDW_PLAN_STATE_ROW_GROUPS_TO_SKIP:
+            rowGroupsToSkip = (List*)lfirst(lc);
             break;
+
+        case FDW_PLAN_STATE_END__:
+            break;
+
+        default:
+            elog(ERROR, "Unknown FDW plan state item number: %d", i);
         }
         ++i;
     }
@@ -1184,28 +870,28 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     if (reader_type != RT_MULTI)
         elog(ERROR, "Unknown reader type %d", reader_type);
 
-    festate =
-            new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_threads, use_mmap);
+    festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_threads, use_mmap);
 
     if (!filenames)
         elog(ERROR, "parquet_fdw: got an empty filenames list");
 
-    forboth(lc, filenames, lc2, rowgroups_list)
+    if (filenames->length != rowGroupsToSkip->length)
+        elog(ERROR, "Filenames count does not match skiplist count.");
+
+    forboth(lc, filenames, lc2, rowGroupsToSkip)
     {
         char *filename  = strVal((Value *)lfirst(lc));
-        List *rowgroups = (List *)lfirst(lc2);
+        List* skipList = (List*)lfirst(lc2);
 
         try
         {
-            festate->add_file(filename, rowgroups);
+            festate->addFileToRead(filename, reader_cxt, skipList);
         }
         catch (std::exception &e)
         {
             elog(ERROR, "parquet_fdw: %s", e.what());
         }
     }
-
-    festate->fillReadList();
 
     /*
      * Enable automatic execution state destruction by using memory context
@@ -1217,60 +903,6 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     MemoryContextRegisterResetCallback(reader_cxt, callback);
 
     node->fdw_state = festate;
-}
-
-/*
- * bytes_to_postgres_type
- *      Convert min/max values from column statistics stored in parquet file as
- *      plain bytes to postgres Datum.
- */
-static Datum bytes_to_postgres_type(const char *bytes, arrow::DataType *arrow_type)
-{
-    switch (arrow_type->id())
-    {
-    case arrow::Type::BOOL:
-        return BoolGetDatum(*(bool *)bytes);
-    case arrow::Type::INT32:
-        return Int32GetDatum(*(int32 *)bytes);
-    case arrow::Type::INT64:
-        return Int64GetDatum(*(int64 *)bytes);
-    case arrow::Type::FLOAT:
-        return Int32GetDatum(*(float *)bytes);
-    case arrow::Type::DOUBLE:
-        return Int64GetDatum(*(double *)bytes);
-    case arrow::Type::STRING:
-    case arrow::Type::BINARY:
-        return CStringGetTextDatum(bytes);
-    case arrow::Type::TIMESTAMP:
-    {
-        TimestampTz ts;
-        auto        tstype = (arrow::TimestampType *)arrow_type;
-
-        to_postgres_timestamp(tstype, *(int64 *)bytes, ts);
-        return TimestampGetDatum(ts);
-    }
-    case arrow::Type::DATE32:
-        return DateADTGetDatum(*(int32 *)bytes + (UNIX_EPOCH_JDATE - POSTGRES_EPOCH_JDATE));
-    default:
-        return PointerGetDatum(NULL);
-    }
-}
-
-/*
- * find_cmp_func
- *      Find comparison function for two given types.
- */
-static void find_cmp_func(FmgrInfo *finfo, Oid type1, Oid type2)
-{
-    Oid             cmp_proc_oid;
-    TypeCacheEntry *tce_1, *tce_2;
-
-    tce_1 = lookup_type_cache(type1, TYPECACHE_BTREE_OPFAMILY);
-    tce_2 = lookup_type_cache(type2, TYPECACHE_BTREE_OPFAMILY);
-
-    cmp_proc_oid = get_opfamily_proc(tce_1->btree_opf, tce_1->btree_opintype, tce_2->btree_opintype,
-                                     BTORDER_PROC);
-    fmgr_info(cmp_proc_oid, finfo);
 }
 
 extern "C" TupleTableSlot *parquetIterateForeignScan(ForeignScanState *node)
@@ -1325,7 +957,6 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
     MemoryContext             reader_cxt;
     TupleDesc                 tupleDesc = RelationGetDescr(relation);
     TupleTableSlot *          slot;
-    // std::set<int>             attrs_used;
     int       cnt      = 0;
     uint64    num_rows = 0;
     ListCell *lc;
@@ -1345,40 +976,17 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
         foreach (lc, fdw_private.filenames)
         {
             char *                                      filename = strVal((Value *)lfirst(lc));
-            std::unique_ptr<parquet::arrow::FileReader> reader;
-            arrow::Status                               status;
-            List *                                      rowgroups = NIL;
-
-            status = parquet::arrow::FileReader::Make(
-                    arrow::default_memory_pool(),
-                    parquet::ParquetFileReader::OpenFile(filename, false), &reader);
-            if (!status.ok())
-                elog(ERROR, "Failed to open parquet file: %s", status.message().c_str());
-
-            auto meta = reader->parquet_reader()->metadata();
-            num_rows += meta->num_rows();
-
-            std::shared_ptr<arrow::Schema> schema;
-
-            parquet::ArrowReaderProperties props;
-            status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
-            if (!status.ok())
-                elog(ERROR, "Failed to convert from parquet schema: %s", status.message().c_str());
+            const auto reader = ParquetFdwReader(filename);
+            num_rows += reader.getNumTotalRows();
 
             if (previousSchema)
-                schemaMustBeEqual(schema, previousSchema);
+                reader.schemaMustBeEqual(previousSchema);
             else
-                validateSchema(schema, tupleDesc);
+                reader.validateSchema(tupleDesc);
 
-            previousSchema = schema;
-
-            /* We need to scan all rowgroups */
-            for (int i = 0; i < meta->num_row_groups(); ++i)
-                rowgroups = lappend_int(rowgroups, i);
-            festate->add_file(filename, rowgroups);
+            previousSchema = reader.GetSchema();
+            festate->addFileToRead(filename, reader_cxt, nullptr);
         }
-
-        festate->fillReadList();
     }
     catch (const std::exception &e)
     {
@@ -1507,7 +1115,7 @@ extern "C" void parquetExplainForeignScan(ForeignScanState *node, ExplainState *
         }
     }
 
-    ExplainPropertyText("Row groups", str.data, es);
+    ExplainPropertyText("Skipped row groups", str.data, es);
 }
 
 /* Parallel query execution */

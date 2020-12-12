@@ -25,7 +25,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_multisort ORDER BY one, five;
    Sort Key: one, five
    ->  Foreign Scan on example_multisort
          Reader: Multifile
-         Row groups: 1, 2
+         Skipped row groups: 
 (5 rows)
 
 SELECT * FROM example_multisort ORDER BY one, five;
@@ -94,11 +94,11 @@ ON lhs.one > 3 * rhs.seven;
    Join Filter: ((lhs.one)::double precision > ('3'::double precision * rhs.seven))
    ->  Foreign Scan on example1 lhs
          Reader: Multifile
-         Row groups: 1, 2
+         Skipped row groups: 
    ->  Materialize
          ->  Foreign Scan on example1 rhs
                Reader: Multifile
-               Row groups: 1, 2
+               Skipped row groups: 
 (9 rows)
 
 -- select with reordering

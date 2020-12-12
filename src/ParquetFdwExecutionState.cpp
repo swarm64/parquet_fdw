@@ -3,6 +3,7 @@
 
 #include "ParquetFdwExecutionState.hpp"
 #include "ReadCoordinator.hpp"
+#include "utils/palloc.h"
 
 extern "C" {
 #include "miscadmin.h"
@@ -48,8 +49,7 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
         }
 
         currentReader = readers[readerId];
-        // throw Error("Worker %d switches to %d %d", MyProcPid, readerId, rowGroupId);
-        currentReader->prepareToReadRowGroup(rowGroupId, tupleDesc);
+        currentReader->prepareToReadRowGroup(rowGroupId, tupleDesc, attrUseList);
     }
 
     const bool res = currentReader->next(slot, fake);
@@ -65,25 +65,28 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
     return res;
 }
 
-void ParquetFdwExecutionState::add_file(const char *filename, List *rowgroups)
-{
-    FileRowgroups fr;
-    ListCell *    lc;
-
-    fr.filename = filename;
-    if (rowgroups == nullptr)
-        fr.rowgroups.push_back(0);
-    else
-    {
-        foreach (lc, rowgroups)
-            fr.rowgroups.push_back(lfirst_int(lc));
+void ParquetFdwExecutionState::addFileToRead(const char* path, MemoryContext cxt, const List* rowGroupSkipList) {
+    std::set<int> rowGroupsToSkip;
+    if (rowGroupSkipList) {
+        ListCell *lc;
+        foreach(lc, rowGroupSkipList) {
+            rowGroupsToSkip.insert(lfirst_int(lc));
+        }
     }
 
-    files.push_back(fr);
-    const auto reader = std::make_shared<ParquetFdwReader>(filename);
-    reader->open(filename, cxt, tupleDesc, attrUseList, use_threads, use_mmap);
-    reader->set_rowgroups_list(fr.rowgroups);
-    readers.push_back(reader);
+    const auto sharedReader = std::make_shared<ParquetFdwReader>(path);
+    sharedReader->setMemoryContext(cxt);
+    readers.push_back(sharedReader);
+
+    const auto readerId = readers.size() - 1;
+    const auto numRowGroups = sharedReader->getNumRowGroups();
+
+    for (int rowGroupId = 0; rowGroupId < numRowGroups; ++rowGroupId) {
+        if (rowGroupsToSkip.find(rowGroupId) != rowGroupsToSkip.cend())
+            continue;
+
+        readList.push_back({readerId, rowGroupId});
+    }
 }
 
 void ParquetFdwExecutionState::set_coordinator(ReadCoordinator *coord)
@@ -91,13 +94,3 @@ void ParquetFdwExecutionState::set_coordinator(ReadCoordinator *coord)
     this->coord = coord;
 }
 
-void ParquetFdwExecutionState::fillReadList()
-{
-    for (int readerId = 0; readerId < (int)files.size(); readerId++)
-    {
-        for (const int rowGroupId : files[readerId].rowgroups)
-        {
-            readList.push_back({readerId, rowGroupId});
-        }
-    }
-}

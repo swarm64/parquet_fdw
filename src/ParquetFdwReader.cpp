@@ -11,55 +11,51 @@ extern "C" {
 
 bool parquet_fdw_use_threads = false;
 
-void ParquetFdwReader::open(const char *             filename,
-                            MemoryContext            cxt,
-                            TupleDesc                tupleDesc,
-                            const std::vector<bool> &attrUseList,
-                            // std::set<int> &attrs_used,
-                            bool use_threads,
-                            bool use_mmap)
+ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
 {
-    parquet::ArrowReaderProperties              props;
-    arrow::Status                               status;
-    std::unique_ptr<parquet::arrow::FileReader> reader;
-
-    status = parquet::arrow::FileReader::Make(
-            arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(filename, use_mmap),
+    const bool mmap = true;
+    const auto status = parquet::arrow::FileReader::Make(
+            arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(parquetFilePath, mmap),
             &reader);
     if (!status.ok())
         throw Error("Failed to open parquet file: %s", status.message().c_str());
 
-    this->reader = std::move(reader);
+    numRowGroups = reader->num_row_groups();
 
-    auto schema = this->reader->parquet_reader()->metadata()->schema();
-    if (!parquet::arrow::FromParquetSchema(schema, props, &this->schema).ok())
+    metadata = reader->parquet_reader()->metadata();
+
+    parquet::ArrowReaderProperties              props;
+    props.set_use_threads(false);
+
+    if (!parquet::arrow::FromParquetSchema(metadata->schema(), props, &schema).ok())
         throw Error("Error reading parquet schema.");
 
-    for (int i = 0; i < tupleDesc->natts; i++)
-    {
-        columnTypes.push_back(this->schema->field(i)->type()->id());
+    for (const auto& field : schema->fields()) {
+        columnTypes.push_back(field->type()->id());
     }
-
-    std::copy(attrUseList.cbegin(), attrUseList.cend(), std::back_inserter(columnUseList));
-    this->allocator = new FastAllocator(cxt);
 }
 
-void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc)
+void ParquetFdwReader::setMemoryContext(MemoryContext cxt) {
+    allocator = std::make_unique<FastAllocator>(FastAllocator(cxt));
+}
+
+void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
+    const std::vector<bool>& attrUseList)
 {
     arrow::Status status;
 
     auto rowgroup_meta = this->reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
 
     columnChunks.clear();
-    for (int columnIdx = 0; columnIdx < this->columnUseList.size(); columnIdx++)
+    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
     {
-        if (columnUseList[columnIdx])
+        if (attrUseList[numAttr])
         {
             std::shared_ptr<arrow::ChunkedArray> columnChunk;
-            const auto columnReader = reader->RowGroup(rowGroupId)->Column(columnIdx);
+            const auto columnReader = reader->RowGroup(rowGroupId)->Column(numAttr);
             const auto status       = columnReader->Read(&columnChunk);
             if (!status.ok())
-                throw Error("Could not read column %d in row group %d: %s", columnIdx, rowGroupId,
+                throw Error("Could not read column %d in row group %d: %s", numAttr, rowGroupId,
                             status.message().c_str());
 
             // Not sure on this one, possibly needs to support multiple chunks
@@ -82,6 +78,9 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
 
 bool ParquetFdwReader::next(TupleTableSlot *slot, bool fake)
 {
+    if (!allocator)
+        throw Error("Allocator not set.");
+
     allocator->recycle();
 
     this->populate_slot(slot, fake);
@@ -110,6 +109,7 @@ void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
         {
             if (columnChunk->IsNull(row))
                 slot->tts_isnull[attr] = true;
+
             else
             {
                 slot->tts_values[attr] =
@@ -133,6 +133,9 @@ void ParquetFdwReader::rescan()
  */
 Datum ParquetFdwReader::read_primitive_type(arrow::Array *array, int type_id, int64_t i)
 {
+    if (!allocator)
+        throw Error("Allocator not set");
+
     Datum res;
 
     /* Get datum depending on the column type */
@@ -226,7 +229,30 @@ Datum ParquetFdwReader::read_primitive_type(arrow::Array *array, int type_id, in
     return res;
 }
 
-void ParquetFdwReader::set_rowgroups_list(const std::vector<int> &rowgroups)
+void ParquetFdwReader::validateSchema(TupleDesc tupleDesc) const
 {
-    this->rowgroups = rowgroups;
+    // Validate column types
+    for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
+    {
+        const auto attr             = tupleDesc->attrs[numAttr];
+        const auto expectedPgTypeId = attr.atttypid;
+
+        const auto field       = schema->field(numAttr);
+        const auto arrowTypeId = field->type()->id();
+        const auto pgTypeId    = FilterPushdown::arrowTypeToPostgresType(arrowTypeId);
+
+        if (pgTypeId == InvalidOid)
+            throw Error("Type on column '%s' currently not supported.", NameStr(attr.attname));
+
+        if (pgTypeId != expectedPgTypeId)
+            throw Error("Type mismatch on column '%s'.", NameStr(attr.attname));
+    }
+}
+
+void ParquetFdwReader::schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const {
+    if (!schema || !otherSchema)
+        throw Error("Schemas not available for comparison");
+
+    if (!schema->Equals(otherSchema))
+        throw Error("Parquet schemas do not match.");
 }

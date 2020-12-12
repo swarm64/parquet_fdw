@@ -14,6 +14,8 @@
 #include "FastAllocator.hpp"
 #include "Misc.hpp"
 #include "ReadCoordinator.hpp"
+#include "FilterPushdown.hpp"
+#include "utils/palloc.h"
 
 extern "C" {
 #include "access/attnum.h"
@@ -21,16 +23,6 @@ extern "C" {
 #include "executor/tuptable.h"
 #include "nodes/primnodes.h"
 }
-
-/*
- * Restriction
- */
-struct RowGroupFilter
-{
-    AttrNumber attnum;
-    Const *    value;
-    int        strategy;
-};
 
 struct ChunkInfo
 {
@@ -53,86 +45,58 @@ private:
         char  elem_align;
     };
 
-public:
-    const std::filesystem::path filePath;
+    std::unique_ptr<FastAllocator> allocator;
+
+    // const std::filesystem::path filePath;
 
     std::unique_ptr<parquet::arrow::FileReader> reader;
-
+    std::shared_ptr<parquet::FileMetaData> metadata;
     std::shared_ptr<arrow::Schema> schema;
 
     /* Arrow column indices that are used in query */
     std::vector<int> indices;
 
-    std::vector<bool>              columnUseList;
     std::vector<arrow::Type::type> columnTypes;
 
     std::vector<std::shared_ptr<arrow::Array>> columnChunks;
 
     std::vector<PgTypeInfo> pg_types;
 
-    // bool *has_nulls; /* per-column info on nulls */
-
     int                    row_group;  /* current row group index */
     uint32_t               row;        /* current row within row group */
     uint32_t               num_rows;   /* total rows in row group */
     std::vector<ChunkInfo> chunk_info; /* current chunk and position per-column */
 
-    /*
-     * Filters built from query restrictions that help to filter out row
-     * groups.
-     */
-    std::list<RowGroupFilter> filters;
-
-    /*
-     * List of row group indexes to scan
-     */
-    std::vector<int> rowgroups;
-
-    FastAllocator *allocator;
-
     /* Wether object is properly initialized */
     bool initialized;
 
-    ParquetFdwReader(const char *file_path)
-        : filePath(file_path), row_group(-1), row(0), num_rows(0), initialized(false)
-    {
-    }
+    size_t numRowGroups;
+
+public:
+
+    ParquetFdwReader(const char* parquetFilePath);
 
     ~ParquetFdwReader()
     {
         if (allocator)
-            delete allocator;
+            allocator.release();
     }
 
     void open(const char *             filename,
               MemoryContext            cxt,
               TupleDesc                tupleDesc,
               const std::vector<bool> &attrUseList,
-              bool                     use_threads,
               bool                     use_mmap);
 
-    void  prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc);
+    void  prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc, const std::vector<bool>& attrUseList);
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
     void  rescan();
     Datum read_primitive_type(arrow::Array *array, int type_id, int64_t i);
 
-    static std::shared_ptr<arrow::Schema> GetSchema(const char *path)
-    {
-        std::unique_ptr<parquet::arrow::FileReader> reader;
-        auto                                        status = parquet::arrow::FileReader::Make(
-                arrow::default_memory_pool(), parquet::ParquetFileReader::OpenFile(path, false),
-                &reader);
-
-        if (!status.ok())
-            return nullptr;
-
-        auto                           meta = reader->parquet_reader()->metadata();
-        parquet::ArrowReaderProperties props;
-        std::shared_ptr<arrow::Schema> schema;
-        status = parquet::arrow::FromParquetSchema(meta->schema(), props, &schema);
-        if (!status.ok())
-            return nullptr;
+    std::shared_ptr<arrow::Schema> GetSchema() const {
+        if (!schema)
+            throw Error("Schema not set");
 
         return schema;
     }
@@ -165,10 +129,30 @@ public:
         return raw_values + arr.offset();
     }
 
-    void set_rowgroups_list(const std::vector<int> &rowgroups);
+    uint64_t getRowGroupCount() const {
+        return reader->num_row_groups();
+    }
+
+    // void set_rowgroups_list(const std::vector<int> &rowgroups);
 
     bool finishedReadingRowGroup() const
     {
         return row >= num_rows;
     }
+
+    size_t getNumRowGroups() const { return numRowGroups; }
+
+    auto getRowGroup(const size_t rowGroupId) const {
+        return metadata->RowGroup(rowGroupId);
+    }
+
+    int64_t getNumTotalRows() const {
+        if (!metadata)
+            throw Error("Metadata not set.");
+        return metadata->num_rows();
+    }
+
+    void setMemoryContext(MemoryContext cxt);
+    void validateSchema(TupleDesc tupleDesc) const;
+    void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const;
 };

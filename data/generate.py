@@ -54,8 +54,17 @@ df3 = pd.DataFrame({'one': [1, 3, 5, 7, 9],
                              date(2018, 1, 7),
                              date(2018, 1, 9)],
                     'six': [True, False, True, False, True],
-                    'seven': [0.1, None, None, None, None]})
-table3 = pa.Table.from_pandas(df3)
+                    'seven': [None, None, None, None, None]})
+
+schema3 = pa.schema([('one', pa.int64()),
+                     ('two', pa.int64()),
+                     ('three', pa.string()),
+                     ('four', pa.timestamp('us')),
+                     ('five', pa.date32()),
+                     ('six', pa.bool_()),
+                     ('seven', pa.float64())])
+
+table3 = pa.Table.from_pandas(df3, schema=schema3)
 
 with pq.ParquetWriter('example2.parquet', table3.schema) as writer:
     writer.write_table(table3)

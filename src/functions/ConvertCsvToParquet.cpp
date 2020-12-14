@@ -61,7 +61,7 @@ std::vector<std::string> ConvertCsvToParquet::textArrayToVector(ArrayType *array
 {
     Datum *fieldsArray;
     bool * nulls;
-    int    fieldsCount;
+    int    fieldsCount = 0;
 
     wrapped::DeconstructArray(array, TEXTOID, -1, false, 'i', &fieldsArray, &nulls, &fieldsCount);
 

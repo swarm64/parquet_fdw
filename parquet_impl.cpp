@@ -407,6 +407,9 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
     char *        funcname = nullptr;
     char *        funcarg  = nullptr;
 
+    if (!fdw_private)
+        elog(ERROR, "FDW plan state not provided.");
+
     fdw_private->use_mmap    = false;
     table                    = GetForeignTable(relid);
 
@@ -735,7 +738,7 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     List *                    attrs_sorted = NIL;
     bool                      use_mmap     = false;
     int                       i            = 0;
-    List* rowGroupsToSkip;
+    List* rowGroupsToSkip = NIL;
 
     TupleTableSlot *slot        = node->ss.ss_ScanTupleSlot;
     TupleDesc       tupleDesc   = slot->tts_tupleDescriptor;
@@ -824,6 +827,9 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
     if (!filenames)
         elog(ERROR, "parquet_fdw: got an empty filenames list");
 
+    if (!rowGroupsToSkip)
+        elog(ERROR, "parquet_fdw: got a null skiplist");
+
     if (filenames->length != rowGroupsToSkip->length)
         elog(ERROR, "Filenames count does not match skiplist count.");
 
@@ -901,8 +907,7 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
                                         double *   totalrows,
                                         double *   totaldeadrows)
 {
-    ParquetFdwExecutionState *festate;
-    ParquetFdwPlanState       fdw_private;
+    ParquetFdwExecutionState *festate = nullptr;
     MemoryContext             reader_cxt;
     TupleDesc                 tupleDesc = RelationGetDescr(relation);
     TupleTableSlot *          slot;
@@ -910,18 +915,23 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
     uint64    num_rows = 0;
     ListCell *lc;
 
-    get_table_options(RelationGetRelid(relation), &fdw_private);
+    ParquetFdwPlanState newPlanState;
+    get_table_options(RelationGetRelid(relation), &newPlanState);
+    ParquetFdwPlanState *fdw_private = &newPlanState;
+
+    const List* filenames = fdw_private->filenames;
+    if (!filenames)
+        elog(ERROR, "List of filenames is empty");
 
     const auto attrUseList = std::vector<bool>(tupleDesc->natts, true);
 
     reader_cxt = AllocSetContextCreate(CurrentMemoryContext, "parquet_fdw tuple data",
                                        ALLOCSET_DEFAULT_SIZES);
     festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, false);
-
     try
     {
         std::shared_ptr<arrow::Schema> previousSchema;
-        foreach (lc, fdw_private.filenames)
+        foreach (lc, filenames)
         {
             char *                                      filename = strVal((Value *)lfirst(lc));
             const auto reader = ParquetFdwReader(filename);
@@ -1137,7 +1147,7 @@ extern "C" List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid s
 
             path = psprintf("%s/%s", stmt->remote_schema, filename);
 
-            /* check that file extension is "parquet" */
+            // check that file extension is "parquet"
             char *ext = strrchr(filename, '.');
 
             if (ext && strcmp(ext + 1, "parquet") != 0)
@@ -1201,6 +1211,8 @@ extern "C" Datum parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
     foreach (lc, options_list)
     {
         DefElem *def = (DefElem *)lfirst(lc);
+        if (!def)
+            elog(ERROR, "Option list element not defined");
 
         if (strcmp(def->defname, "filename") == 0)
         {

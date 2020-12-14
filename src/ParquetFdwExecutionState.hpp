@@ -50,6 +50,7 @@ public:
     {
         if (!coord)
             Error("Coordinator not set");
-        coord->reset();
+        else
+            coord->reset();
     }
 };

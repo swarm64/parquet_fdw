@@ -45,6 +45,11 @@ ifdef DEBUG
 	override PG_CFLAGS += -O0 -g
 endif
 
+ifdef ANALYZE
+	override PG_CFLAGS += --analyze
+	override PG_CXXFLAGS += --analyze
+endif
+
 include $(PGXS)
 
 # XXX: PostgreSQL below 11 does not automatically add -fPIC or equivalent to C++

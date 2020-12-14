@@ -66,4 +66,12 @@ SELECT five FROM
 -- window function
 SELECT three, four, six, rank() OVER (PARTITION BY six ORDER BY four DESC) FROM example1;
 
+-- Rescan
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+SET enable_material = off;
+explain select * from example1 a, example1 b where a.one = b.one;
+select * from example1 a, example1 b where a.one = b.one;
+
 DROP EXTENSION parquet_fdw CASCADE;

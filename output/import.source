@@ -11,6 +11,9 @@ SET ROLE regress_parquet_fdw;
 IMPORT FOREIGN SCHEMA "@abs_srcdir@/data"
 FROM SERVER parquet_srv
 INTO public;
+WARNING:  Skipping file @abs_srcdir@/data/README.md. Not a parquet file.
+WARNING:  Skipping file @abs_srcdir@/data/generate.py. Not a parquet file.
+WARNING:  Skipping file @abs_srcdir@/data/somedata.csv. Not a parquet file.
 \d
                     List of relations
  Schema |   Name   |     Type      |        Owner        

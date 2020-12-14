@@ -80,6 +80,7 @@ extern "C" {
 #include "src/ParquetFdwExecutionState.hpp"
 #include "src/ParquetFdwReader.hpp"
 #include "src/functions/ConvertCsvToParquet.hpp"
+#include "src/functions/Filesystem.hpp"
 
 /* from costsize.c */
 #define LOG2(x) (log(x) / 0.693147180559945)
@@ -1120,45 +1121,18 @@ extern "C" void parquetShutdownForeignScan(ForeignScanState *node)
 
 extern "C" List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
-    struct dirent *f;
-    DIR *          d;
-    List *         cmds = NIL;
+    List *cmds = NIL;
 
-    d = AllocateDir(stmt->remote_schema);
-    if (!d)
-    {
-        int e = errno;
+    try {
+        const auto parquetFiles = SchemaBuilder::GetParquetFiles(stmt->remote_schema);
+        for (const auto& parquetFile : parquetFiles) {
+            char* fullPath = const_cast<char*>(parquetFile.native().c_str());
+            const std::string tableName = parquetFile.filename().stem();
 
-        elog(ERROR, "parquet_fdw: failed to open directory '%s': %s", stmt->remote_schema,
-             strerror(e));
-    }
-
-    while ((f = readdir(d)) != nullptr)
-    {
-        /* TODO: use lstat if d_type == DT_UNKNOWN */
-        if (f->d_type == DT_REG)
-        {
             ListCell *lc;
             bool      skip = false;
             List *    fields;
-            char *    filename = pstrdup(f->d_name);
-            char *    path;
             char *    query;
-
-            path = psprintf("%s/%s", stmt->remote_schema, filename);
-
-            // check that file extension is "parquet"
-            char *ext = strrchr(filename, '.');
-
-            if (ext && strcmp(ext + 1, "parquet") != 0)
-                continue;
-
-            /*
-             * Set terminal symbol to be able to run strcmp on filename
-             * without file extension
-             */
-            *ext = '\0';
-
             foreach (lc, stmt->table_list)
             {
                 RangeVar *rv = (RangeVar *)lfirst(lc);
@@ -1166,14 +1140,14 @@ extern "C" List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid s
                 switch (stmt->list_type)
                 {
                 case FDW_IMPORT_SCHEMA_LIMIT_TO:
-                    if (strcmp(filename, rv->relname) != 0)
+                    if (strcmp(tableName.c_str(), rv->relname) != 0)
                     {
                         skip = true;
                         break;
                     }
                     break;
                 case FDW_IMPORT_SCHEMA_EXCEPT:
-                    if (strcmp(filename, rv->relname) == 0)
+                    if (strcmp(tableName.c_str(), rv->relname) == 0)
                     {
                         skip = true;
                         break;
@@ -1182,16 +1156,18 @@ extern "C" List *parquetImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid s
                 default:;
                 }
             }
+
             if (skip)
                 continue;
 
-            fields = extract_parquet_fields(path);
-            query  = create_foreign_table_query(filename, stmt->local_schema, stmt->server_name,
-                                               &path, 1, fields, stmt->options);
+            fields = extract_parquet_fields(fullPath);
+            query  = create_foreign_table_query(tableName.c_str(), stmt->local_schema, stmt->server_name,
+                                               &fullPath, 1, fields, stmt->options);
             cmds   = lappend(cmds, query);
         }
+    } catch (std::exception& exc) {
+        elog(ERROR, "parquet_fdw: %s", exc.what());
     }
-    FreeDir(d);
 
     return cmds;
 }

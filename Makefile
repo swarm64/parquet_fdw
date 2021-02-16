@@ -24,7 +24,7 @@ EXTRA_CLEAN = sql/parquet_fdw.sql expected/parquet_fdw.out
 PG_CONFIG = /usr/pgsql-12/bin/pg_config
 
 # parquet_impl.cpp requires C++ 11.
-override PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors -Wno-ignored-attributes
+override PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors -Wno-ignored-attributes -O3
 
 override CFLAGS := $(filter-out -fstack-clash-protection,$(CFLAGS))
 override CFLAGS += -Wno-ignored-attributes

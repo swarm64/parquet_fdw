@@ -204,7 +204,9 @@ static List *extract_parquet_fields(const char *path) noexcept
 
     try
     {
-        const auto schema = ParquetFdwReader(path).GetSchema();
+        auto reader = std::make_unique<ParquetFdwReader>(path);
+        const auto schema = reader->GetSchema();
+        reader.reset();
         const auto numFields = schema->num_fields();
 
         FieldInfo *fields = (FieldInfo *)exc_palloc(sizeof(FieldInfo) * numFields);
@@ -543,14 +545,14 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         foreach (lc, fdw_private->filenames)
         {
             char *     filename = strVal((Value *)lfirst(lc));
-            const auto reader = ParquetFdwReader(filename);
+            auto reader = std::make_unique<ParquetFdwReader>(filename);
 
             if (previousSchema)
-                reader.schemaMustBeEqual(previousSchema);
+                reader->schemaMustBeEqual(previousSchema);
             else
-                reader.validateSchema(tupleDesc);
+                reader->validateSchema(tupleDesc);
 
-            FilterPushdown filterPushdown(reader.getNumRowGroups());
+            FilterPushdown filterPushdown(reader->getNumRowGroups());
             filterPushdown.extract_rowgroup_filters(baserel->baserestrictinfo);
 
             /*
@@ -564,7 +566,8 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
             }
             fdw_private->rowGroupsToSkip = lappend(fdw_private->rowGroupsToSkip, thisFileSkipList);
 
-            previousSchema = reader.GetSchema();
+            previousSchema = reader->GetSchema();
+            reader.reset();
         }
     }
     catch (std::exception &e)
@@ -572,18 +575,6 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         elog(ERROR, "parquet_fdw: error validating schema: %s", e.what());
     }
 
-/*
-    foreach (lc, fdw_private->filenames)
-    {
-        char *filename = strVal((Value *)lfirst(lc));
-        // FIXME: TRY/CATCH
-        List *rowgroups = filterPushdown.extract_rowgroups_list(filename, tupleDesc, &fdw_private->ntuples);
-        if (!rowgroups)
-            elog(WARNING, "No rowgroups");
-        // fdw_private->rowgroups = lappend(fdw_private->rowgroups, rowgroups);
-        fdw_private->filterPushdown = filterPushdown;
-    }
-*/
 #if PG_VERSION_NUM < 120000
     heap_close(rel, AccessShareLock);
 #else
@@ -934,17 +925,18 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
         std::shared_ptr<arrow::Schema> previousSchema;
         foreach (lc, filenames)
         {
-            char *                                      filename = strVal((Value *)lfirst(lc));
-            const auto reader = ParquetFdwReader(filename);
-            num_rows += reader.getNumTotalRows();
+            char *filename = strVal((Value *)lfirst(lc));
+            auto reader = std::make_unique<ParquetFdwReader>(filename);
+            num_rows += reader->getNumTotalRows();
 
             if (previousSchema)
-                reader.schemaMustBeEqual(previousSchema);
+                reader->schemaMustBeEqual(previousSchema);
             else
-                reader.validateSchema(tupleDesc);
+                reader->validateSchema(tupleDesc);
 
-            previousSchema = reader.GetSchema();
+            previousSchema = reader->GetSchema();
             festate->addFileToRead(filename, reader_cxt, nullptr);
+            reader.reset();
         }
     }
     catch (const std::exception &e)
@@ -1051,21 +1043,25 @@ extern "C" void parquetExplainForeignScan(ForeignScanState *node, ExplainState *
 #endif
         }
 
-        foreach (lc3, rowgroups)
-        {
-            /*
-             * As parquet-tools use 1 based indexing for row groups it's probably
-             * a good idea to output row groups numbers in the same way.
-             */
-            int rowgroup = lfirst_int(lc3) + 1;
-
-            if (is_first)
+        if (rowgroups) {
+            foreach (lc3, rowgroups)
             {
-                appendStringInfo(&str, "%i", rowgroup);
-                is_first = false;
+                /*
+                 * As parquet-tools use 1 based indexing for row groups it's probably
+                 * a good idea to output row groups numbers in the same way.
+                 */
+                int rowgroup = lfirst_int(lc3) + 1;
+
+                if (is_first)
+                {
+                    appendStringInfo(&str, "%i", rowgroup);
+                    is_first = false;
+                }
+                else
+                    appendStringInfo(&str, ", %i", rowgroup);
             }
-            else
-                appendStringInfo(&str, ", %i", rowgroup);
+        } else {
+            appendStringInfo(&str, "none");
         }
     }
 

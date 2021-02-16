@@ -47,7 +47,7 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
         }
 
         currentReader = readers[readerId];
-        currentReader->prepareToReadRowGroup(rowGroupId, tupleDesc, attrUseList);
+        currentReader->bufferRowGroup(rowGroupId, tupleDesc, attrUseList);
     }
 
     const bool res = currentReader->next(slot, fake);

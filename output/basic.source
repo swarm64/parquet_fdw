@@ -49,23 +49,23 @@ SELECT count(*) as count FROM example1;
 
 -- sorting
 EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY one;
-           QUERY PLAN           
---------------------------------
+            QUERY PLAN            
+----------------------------------
  Sort
    Sort Key: one
    ->  Foreign Scan on example1
          Reader: Multifile
-         Skipped row groups: 
+         Skipped row groups: none
 (5 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example1 ORDER BY three;
-           QUERY PLAN           
---------------------------------
+            QUERY PLAN            
+----------------------------------
  Sort
    Sort Key: three
    ->  Foreign Scan on example1
          Reader: Multifile
-         Skipped row groups: 
+         Skipped row groups: none
 (5 rows)
 
 -- filtering

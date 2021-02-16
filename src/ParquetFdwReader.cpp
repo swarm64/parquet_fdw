@@ -10,9 +10,25 @@ extern "C" {
 }
 
 ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
+: parquetFilePath(parquetFilePath)
 {
-    parquet::ArrowReaderProperties              props;
     props.set_use_threads(false);
+
+    const auto reader = getFileReader();
+
+    numRowGroups = reader->num_row_groups();
+    metadata = reader->parquet_reader()->metadata();
+
+    if (!parquet::arrow::FromParquetSchema(metadata->schema(), props, &schema).ok())
+        throw Error("Error reading parquet schema.");
+
+    for (const auto& field : schema->fields()) {
+        columnTypes.push_back(field->type()->id());
+    }
+}
+
+std::unique_ptr<parquet::arrow::FileReader> ParquetFdwReader::getFileReader() const {
+    std::unique_ptr<parquet::arrow::FileReader> reader;
 
     const bool mmap = true;
     const auto status = parquet::arrow::FileReader::Make(
@@ -24,28 +40,20 @@ ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
         throw Error("Failed to open parquet file: %s", status.message().c_str());
 
     reader->set_use_threads(false);
-    numRowGroups = reader->num_row_groups();
-
-    metadata = reader->parquet_reader()->metadata();
-
-    if (!parquet::arrow::FromParquetSchema(metadata->schema(), props, &schema).ok())
-        throw Error("Error reading parquet schema.");
-
-    for (const auto& field : schema->fields()) {
-        columnTypes.push_back(field->type()->id());
-    }
+    return reader;
 }
 
 void ParquetFdwReader::setMemoryContext(MemoryContext cxt) {
     allocator = std::make_unique<FastAllocator>(FastAllocator(cxt));
 }
 
-void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
-    const std::vector<bool>& attrUseList)
+void ParquetFdwReader::bufferRowGroup(
+    const int32_t rowGroupId, TupleDesc tupleDesc, const std::vector<bool>& attrUseList)
 {
     arrow::Status status;
 
-    auto rowgroup_meta = this->reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
+    const auto reader = getFileReader();
+    auto rowgroup_meta = reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
 
     columnChunks.clear();
     for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
@@ -63,14 +71,14 @@ void ParquetFdwReader::prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc
             if (columnChunk->num_chunks() > 1)
                 throw Error("More than one chunk found.");
 
-            const auto array = columnChunk->chunk(0);
-            columnChunks.push_back(array);
+            columnChunks.emplace_back(ChunkInfo(columnChunk->chunk(0)));
         }
         else
-        {
-            columnChunks.push_back(nullptr);
-        }
+            columnChunks.emplace_back(ChunkInfo());
     }
+
+    if (columnChunks.size() != tupleDesc->natts)
+        throw Error("Amount of column chunks does not match number of attributes");
 
     this->row_group = rowGroupId;
     this->row       = 0;
@@ -100,24 +108,16 @@ bool ParquetFdwReader::next(TupleTableSlot *slot, bool fake)
  */
 void ParquetFdwReader::populate_slot(TupleTableSlot *slot, bool fake)
 {
+    std::memset(slot->tts_isnull, 1, sizeof(bool) * slot->tts_tupleDescriptor->natts);
     /* Fill slot values */
     for (int attr = 0; attr < slot->tts_tupleDescriptor->natts; attr++)
     {
-        const auto columnChunk = columnChunks[attr];
-        if (columnChunk == nullptr)
-            slot->tts_isnull[attr] = true;
-        else
-        {
-            if (columnChunk->IsNull(row))
-                slot->tts_isnull[attr] = true;
+        const auto& columnChunk = columnChunks[attr];
+        if (columnChunk.array == nullptr || (columnChunk.hasNulls && columnChunk.array->IsNull(row)))
+            continue;
 
-            else
-            {
-                slot->tts_values[attr] =
-                        this->read_primitive_type(columnChunk.get(), columnTypes[attr], row);
-                slot->tts_isnull[attr] = false;
-            }
-        }
+        slot->tts_values[attr] = this->read_primitive_type(columnChunk.array, columnTypes[attr], row);
+        slot->tts_isnull[attr] = false;
     }
 }
 
@@ -132,7 +132,7 @@ void ParquetFdwReader::rescan()
  * read_primitive_type
  *      Returns primitive type value from arrow array
  */
-Datum ParquetFdwReader::read_primitive_type(arrow::Array *array, int type_id, int64_t i)
+Datum ParquetFdwReader::read_primitive_type(const arrow::Array *array, int type_id, int64_t i)
 {
     if (!allocator)
         throw Error("Allocator not set");

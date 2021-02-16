@@ -25,8 +25,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq;
  Foreign Scan on example_seq
    Reader: Multifile
    Skipped row groups: 
-     example1.parquet: 
-     example2.parquet: 
+     example1.parquet: none
+     example2.parquet: none
 (5 rows)
 
 SELECT * FROM example_seq;
@@ -64,8 +64,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one, three;
    ->  Foreign Scan on example_sorted
          Reader: Multifile
          Skipped row groups: 
-           example1.parquet: 
-           example2.parquet: 
+           example1.parquet: none
+           example2.parquet: none
 (7 rows)
 
 SELECT * FROM example_sorted ORDER BY one, three;
@@ -124,8 +124,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq;
    ->  Parallel Foreign Scan on example_seq
          Reader: Multifile
          Skipped row groups: 
-           example1.parquet: 
-           example2.parquet: 
+           example1.parquet: none
+           example2.parquet: none
 (7 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY one;
@@ -138,8 +138,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY one;
          ->  Parallel Foreign Scan on example_seq
                Reader: Multifile
                Skipped row groups: 
-                 example1.parquet: 
-                 example2.parquet: 
+                 example1.parquet: none
+                 example2.parquet: none
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY two;
@@ -152,8 +152,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_seq ORDER BY two;
          ->  Parallel Foreign Scan on example_seq
                Reader: Multifile
                Skipped row groups: 
-                 example1.parquet: 
-                 example2.parquet: 
+                 example1.parquet: none
+                 example2.parquet: none
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted;
@@ -164,8 +164,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted;
    ->  Parallel Foreign Scan on example_sorted
          Reader: Multifile
          Skipped row groups: 
-           example1.parquet: 
-           example2.parquet: 
+           example1.parquet: none
+           example2.parquet: none
 (7 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
@@ -178,8 +178,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY one;
          ->  Parallel Foreign Scan on example_sorted
                Reader: Multifile
                Skipped row groups: 
-                 example1.parquet: 
-                 example2.parquet: 
+                 example1.parquet: none
+                 example2.parquet: none
 (9 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY two;
@@ -192,8 +192,8 @@ EXPLAIN (COSTS OFF) SELECT * FROM example_sorted ORDER BY two;
          ->  Parallel Foreign Scan on example_sorted
                Reader: Multifile
                Skipped row groups: 
-                 example1.parquet: 
-                 example2.parquet: 
+                 example1.parquet: none
+                 example2.parquet: none
 (9 rows)
 
 DROP EXTENSION parquet_fdw CASCADE;

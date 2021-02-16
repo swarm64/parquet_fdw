@@ -24,13 +24,6 @@ extern "C" {
 #include "nodes/primnodes.h"
 }
 
-struct ChunkInfo
-{
-    int   chunk; /* current chunk number */
-    int64 pos;   /* current pos within chunk */
-    int64 len;   /* current chunk length */
-};
-
 class ParquetFdwReader
 {
 private:
@@ -45,11 +38,20 @@ private:
         char  elem_align;
     };
 
+    struct ChunkInfo {
+        const std::shared_ptr<arrow::Array> sharedArray;
+        const arrow::Array* array;
+        const bool hasNulls;
+
+        ChunkInfo(std::shared_ptr<arrow::Array> _sharedArray = nullptr)
+        : sharedArray(_sharedArray)
+        , array(_sharedArray.get())
+        , hasNulls(_sharedArray && _sharedArray->null_count() > 0)
+        { }
+    };
+
     std::unique_ptr<FastAllocator> allocator;
 
-    // const std::filesystem::path filePath;
-
-    std::unique_ptr<parquet::arrow::FileReader> reader;
     std::shared_ptr<parquet::FileMetaData> metadata;
     std::shared_ptr<arrow::Schema> schema;
 
@@ -58,19 +60,24 @@ private:
 
     std::vector<arrow::Type::type> columnTypes;
 
-    std::vector<std::shared_ptr<arrow::Array>> columnChunks;
+    std::vector<ChunkInfo> columnChunks;
 
     std::vector<PgTypeInfo> pg_types;
 
     int                    row_group;  /* current row group index */
     uint32_t               row;        /* current row within row group */
     uint32_t               num_rows;   /* total rows in row group */
-    std::vector<ChunkInfo> chunk_info; /* current chunk and position per-column */
 
     /* Wether object is properly initialized */
-    bool initialized;
+    // bool initialized;
 
     size_t numRowGroups;
+
+    parquet::ArrowReaderProperties props;
+
+    const std::string parquetFilePath;
+
+    std::unique_ptr<parquet::arrow::FileReader> getFileReader() const;
 
 public:
 
@@ -82,17 +89,13 @@ public:
             allocator.release();
     }
 
-    void open(const char *             filename,
-              MemoryContext            cxt,
-              TupleDesc                tupleDesc,
-              const std::vector<bool> &attrUseList,
-              bool                     use_mmap);
+    void bufferRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
+        const std::vector<bool>& attrUseList);
 
-    void  prepareToReadRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc, const std::vector<bool>& attrUseList);
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
     void  rescan();
-    Datum read_primitive_type(arrow::Array *array, int type_id, int64_t i);
+    Datum read_primitive_type(const arrow::Array *array, int type_id, int64_t i);
 
     std::shared_ptr<arrow::Schema> GetSchema() const {
         if (!schema)
@@ -129,18 +132,13 @@ public:
         return raw_values + arr.offset();
     }
 
-    uint64_t getRowGroupCount() const {
-        return reader->num_row_groups();
-    }
-
-    // void set_rowgroups_list(const std::vector<int> &rowgroups);
-
-    bool finishedReadingRowGroup() const
-    {
+    bool finishedReadingRowGroup() const {
         return row >= num_rows;
     }
 
-    size_t getNumRowGroups() const { return numRowGroups; }
+    size_t getNumRowGroups() const {
+        return numRowGroups;
+    }
 
     auto getRowGroup(const size_t rowGroupId) const {
         return metadata->RowGroup(rowGroupId);

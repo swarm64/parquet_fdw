@@ -221,7 +221,8 @@ List* FilterPushdown::getRowGroupSkipListAndUpdateTupleCount(const ParquetFdwRea
     List* rowGroupSkipList = NIL;
 
     /* Check each row group whether it matches the filters */
-    for (int r = 0; r < reader.getNumRowGroups(); r++)
+    const int32_t numRowGroups = reader.getNumRowGroups();
+    for (int r = 0; r < numRowGroups; r++)
     {
         bool skipRowGroup = false;
         const auto rowgroup = reader.getRowGroup(r);

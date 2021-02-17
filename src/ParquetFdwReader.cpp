@@ -77,7 +77,7 @@ void ParquetFdwReader::bufferRowGroup(
             columnChunks.emplace_back(ChunkInfo());
     }
 
-    if (columnChunks.size() != tupleDesc->natts)
+    if ((int)columnChunks.size() != tupleDesc->natts)
         throw Error("Amount of column chunks does not match number of attributes");
 
     this->row_group = rowGroupId;

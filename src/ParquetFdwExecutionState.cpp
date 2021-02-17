@@ -77,7 +77,7 @@ void ParquetFdwExecutionState::addFileToRead(const char* path, MemoryContext cxt
     readers.push_back(sharedReader);
 
     const auto readerId = readers.size() - 1;
-    const auto numRowGroups = sharedReader->getNumRowGroups();
+    const auto numRowGroups = (int32_t)(sharedReader->getNumRowGroups());
 
     for (int rowGroupId = 0; rowGroupId < numRowGroups; ++rowGroupId) {
         if (rowGroupsToSkip.find(rowGroupId) != rowGroupsToSkip.cend())

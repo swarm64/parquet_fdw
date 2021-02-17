@@ -20,37 +20,21 @@ REGRESS = basic invalid files_func multifile advanced import
 
 EXTRA_CLEAN = sql/parquet_fdw.sql expected/parquet_fdw.out
 
-# PG_CONFIG ?= pg_config
-PG_CONFIG = /usr/pgsql-12/bin/pg_config
-
-# parquet_impl.cpp requires C++ 11.
-override PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors -Wno-ignored-attributes -O3
-
-override CFLAGS := $(filter-out -fstack-clash-protection,$(CFLAGS))
-override CFLAGS += -Wno-ignored-attributes
+PG_CONFIG = pg_config
+PG_CXXFLAGS += -std=c++17 -Wall -Werror -Wfatal-errors
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
+include $(PGXS)
 
-override CC = clang
-override CXX = clang++
-
-# pass CCFLAGS (when defined) to both C and C++ compilers.
-ifdef CCFLAGS
-	override PG_CXXFLAGS += $(CCFLAGS)
-	override PG_CFLAGS += $(CCFLAGS)
-endif
+override CFLAGS := $(filter-out -fstack-clash-protection,$(CFLAGS))
 
 ifdef DEBUG
-	override PG_CXXFLAGS += -O0 -g
-	override PG_CFLAGS += -O0 -g
+	DEBUG_FLAGS = -O0 -g
+	override CPPFLAGS := $(filter-out -O2,$(CPPFLAGS)) $(DEBUG_FLAGS)
+	override CXXFLAGS := $(filter-out -O2,$(CXXFLAGS)) $(DEBUG_FLAGS)
+	override BITCODE_CXXFLAGS := $(filter-out -O2,$(BITCODE_CXXFLAGS)) $(DEBUG_FLAGS)
+	override CFLAGS := $(filter-out -O2,$(CFLAGS)) $(DEBUG_FLAGS)
 endif
-
-ifdef ANALYZE
-	override PG_CFLAGS += --analyze
-	override PG_CXXFLAGS += --analyze
-endif
-
-include $(PGXS)
 
 # XXX: PostgreSQL below 11 does not automatically add -fPIC or equivalent to C++
 # flags when building a shared library, have to do it here explicitely.
@@ -58,12 +42,12 @@ ifeq ($(shell test $(VERSION_NUM) -lt 110000; echo $$?), 0)
 	override CXXFLAGS += $(CFLAGS_SL)
 endif
 
-# PostgreSQL uses link time optimization option which may break compilation
-# (this happens on travis-ci). Redefine COMPILE.cxx.bc without this option.
+# # PostgreSQL uses link time optimization option which may break compilation
+# # (this happens on travis-ci). Redefine COMPILE.cxx.bc without this option.
 COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CPPFLAGS) -emit-llvm -c
-
-# XXX: a hurdle to use common compiler flags when building bytecode from C++
-# files. should be not unnecessary, but src/Makefile.global omits passing those
-# flags for an unnknown reason.
+# 
+# # XXX: a hurdle to use common compiler flags when building bytecode from C++
+# # files. should be not unnecessary, but src/Makefile.global omits passing those
+# # flags for an unnknown reason.
 %.bc : %.cpp
-	$(COMPILE.cxx.bc) $(CXXFLAGS) $(CPPFLAGS)  -o $@ $<
+	$(COMPILE.cxx.bc) $(CXXFLAGS) -o $@ $<

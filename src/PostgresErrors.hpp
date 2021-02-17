@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef __clang__
+#elif __GNUC__
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
+
 extern "C" {
 #include "postgres.h"
 }

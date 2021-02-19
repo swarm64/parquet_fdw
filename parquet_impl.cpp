@@ -13,6 +13,7 @@
 
 #include <sys/stat.h>
 
+#include <filesystem>
 #include <list>
 #include <mutex>
 #include <set>
@@ -185,6 +186,54 @@ static List *parse_filenames_list(const char *str)
     filenames = lappend(filenames, makeString(f));
 
     return filenames;
+}
+
+static List* getFilesToRead(const char* filenamesListString) {
+    ListCell* lc;
+    List* fileNamesList = parse_filenames_list(filenamesListString);
+    List* fileNames = NIL;
+
+    try {
+        foreach (lc, fileNamesList)
+        {
+            char *filename = strVal((Value *)lfirst(lc));
+            const auto path = std::filesystem::path(filename);
+
+            if (!std::filesystem::exists(path))
+            {
+                elog(ERROR, "parquet_fdw: No such file or directory");
+            }
+            else if (std::filesystem::is_directory(path))
+            {
+                for (auto &entry : std::filesystem::recursive_directory_iterator(path))
+                {
+                    const auto currentPath = entry.path();
+                    if (std::filesystem::is_regular_file(currentPath))
+                    {
+                        elog(DEBUG1, "Appending file %s", currentPath.c_str());
+                        char* thisFile = pstrdup(currentPath.c_str());
+                        fileNames = lappend(fileNames, makeString(thisFile));
+                    }
+                }
+            }
+            else if (std::filesystem::is_regular_file(path))
+            {
+                elog(DEBUG1, "Appending file %s", path.c_str());
+                char* thisFile = pstrdup(path.c_str());
+                fileNames = lappend(fileNames, makeString(thisFile));
+            }
+            else
+            {
+                elog(ERROR, "File %s is neither regular file nor a directory. Skipping.", filename);
+            }
+        }
+    }
+    catch (std::exception &e)
+    {
+        elog(ERROR, "parquet_fdw exception: %s", e.what());
+    }
+
+    return fileNames;
 }
 
 
@@ -422,7 +471,7 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
 
         if (strcmp(def->defname, "filename") == 0)
         {
-            fdw_private->filenames = parse_filenames_list(defGetString(def));
+            fdw_private->filenames = getFilesToRead(defGetString(def));
         }
         else if (strcmp(def->defname, "files_func") == 0)
         {
@@ -542,7 +591,8 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
     try
     {
         std::shared_ptr<arrow::Schema> previousSchema;
-        foreach (lc, fdw_private->filenames)
+        List* allFiles = list_copy(fdw_private->filenames);
+        foreach (lc, allFiles)
         {
             char *     filename = strVal((Value *)lfirst(lc));
             auto reader = std::make_unique<ParquetFdwReader>(filename);
@@ -560,11 +610,21 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
              * approximate number of rows in result set based on total number of tuples
              * in those row groups. It isn't very precise but it is best we got.
              */
-            List *thisFileSkipList = filterPushdown.getRowGroupSkipListAndUpdateTupleCount(filename, tupleDesc, &(fdw_private->ntuples));
-            foreach(lc2, thisFileSkipList) {
-                elog(DEBUG1, "parquet_fdw: skip rowgroup %d", lfirst_int(lc2));
+            List *thisFileSkipList = filterPushdown.getRowGroupSkipListAndUpdateTupleCount(
+                filename, tupleDesc, &(fdw_private->ntuples));
+
+            if (thisFileSkipList != NIL && reader->getNumRowGroups() == (size_t)thisFileSkipList->length)
+            {
+                elog(DEBUG1, "parquet_fdw: skipping file %s", filename);
+                fdw_private->filenames = list_delete_ptr(fdw_private->filenames, lfirst(lc));
             }
-            fdw_private->rowGroupsToSkip = lappend(fdw_private->rowGroupsToSkip, thisFileSkipList);
+            else
+            {
+                foreach(lc2, thisFileSkipList) {
+                    elog(DEBUG1, "parquet_fdw: skipping rowgroup %d of file %s", lfirst_int(lc2), filename);
+                }
+                fdw_private->rowGroupsToSkip = lappend(fdw_private->rowGroupsToSkip, thisFileSkipList);
+            }
 
             previousSchema = reader->GetSchema();
             reader.reset();
@@ -816,27 +876,26 @@ extern "C" void parquetBeginForeignScan(ForeignScanState *node, int eflags)
 
     festate = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, use_mmap);
 
-    if (!filenames)
-        elog(ERROR, "parquet_fdw: got an empty filenames list");
+    if (filenames) {
+        if (!rowGroupsToSkip)
+            elog(ERROR, "parquet_fdw: got a null skiplist");
 
-    if (!rowGroupsToSkip)
-        elog(ERROR, "parquet_fdw: got a null skiplist");
+        if (filenames->length != rowGroupsToSkip->length)
+            elog(ERROR, "Filenames count does not match skiplist count.");
 
-    if (filenames->length != rowGroupsToSkip->length)
-        elog(ERROR, "Filenames count does not match skiplist count.");
-
-    forboth(lc, filenames, lc2, rowGroupsToSkip)
-    {
-        char *filename  = strVal((Value *)lfirst(lc));
-        List* skipList = (List*)lfirst(lc2);
-
-        try
+        forboth(lc, filenames, lc2, rowGroupsToSkip)
         {
-            festate->addFileToRead(filename, reader_cxt, skipList);
-        }
-        catch (std::exception &e)
-        {
-            elog(ERROR, "parquet_fdw: %s", e.what());
+            char *filename  = strVal((Value *)lfirst(lc));
+            List* skipList = (List*)lfirst(lc2);
+
+            try
+            {
+                festate->addFileToRead(filename, reader_cxt, skipList);
+            }
+            catch (std::exception &e)
+            {
+                elog(ERROR, "parquet_fdw: %s", e.what());
+            }
         }
     }
 
@@ -1192,7 +1251,7 @@ extern "C" Datum parquet_fdw_validator_impl(PG_FUNCTION_ARGS)
             List *    filenames;
             ListCell *lc;
 
-            filenames = parse_filenames_list(filename);
+            filenames = getFilesToRead(filename);
 
             foreach (lc, filenames)
             {

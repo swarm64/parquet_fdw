@@ -1,6 +1,7 @@
 SET log_min_duration_statement = -1;
 SET datestyle = 'ISO';
-SET client_min_messages = DEBUG1;
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
 CREATE EXTENSION parquet_fdw;
 DROP ROLE IF EXISTS regress_parquet_fdw;
 ERROR:  role "regress_parquet_fdw" cannot be dropped because some objects depend on it
@@ -20,11 +21,17 @@ CREATE FOREIGN TABLE example_dir (
     seven   FLOAT8)
 SERVER parquet_srv
 OPTIONS (filename '@abs_srcdir@/data/dir');
-DEBUG:  Appending file @abs_srcdir@/data/dir/l1_a/nested/example2.parquet
-DEBUG:  Appending file @abs_srcdir@/data/dir/l1/example1.parquet
+\d
+                     List of relations
+ Schema |    Name     |     Type      |        Owner        
+--------+-------------+---------------+---------------------
+ public | example_dir | foreign table | regress_parquet_fdw
+(1 row)
+
+SET client_min_messages = DEBUG1;
 SELECT * FROM example_dir ORDER BY one, two;
-DEBUG:  Appending file @abs_srcdir@/data/dir/l1_a/nested/example2.parquet
-DEBUG:  Appending file @abs_srcdir@/data/dir/l1/example1.parquet
+DEBUG:  Appending file @abs_srcdir@/data/dir/l1_a/nested/example_nested2.parquet
+DEBUG:  Appending file @abs_srcdir@/data/dir/l1/example_nested1.parquet
  one | two | three |        four         |    five    | six | seven 
 -----+-----+-------+---------------------+------------+-----+-------
    1 |   1 | foo   | 2018-01-01 00:00:00 | 2018-01-01 | t   |   0.5

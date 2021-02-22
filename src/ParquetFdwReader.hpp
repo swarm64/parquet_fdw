@@ -91,6 +91,7 @@ public:
 
     void bufferRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
         const std::vector<bool>& attrUseList);
+    void bufferFullTable();
 
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
@@ -134,6 +135,10 @@ public:
 
     bool finishedReadingRowGroup() const {
         return row >= num_rows;
+    }
+
+    bool finishedReadingTable() const {
+        return finishedReadingRowGroup();
     }
 
     size_t getNumRowGroups() const {

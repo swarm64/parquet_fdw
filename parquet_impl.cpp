@@ -975,10 +975,6 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
         elog(ERROR, "List of filenames is empty");
 
     const auto attrUseList = std::vector<bool>(tupleDesc->natts, true);
-
-    reader_cxt = AllocSetContextCreate(CurrentMemoryContext, "parquet_fdw tuple data",
-                                       ALLOCSET_DEFAULT_SIZES);
-    festate    = new ParquetFdwExecutionState(reader_cxt, tupleDesc, attrUseList, false);
     try
     {
         std::shared_ptr<arrow::Schema> previousSchema;
@@ -994,7 +990,6 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
                 reader->validateSchema(tupleDesc);
 
             previousSchema = reader->GetSchema();
-            festate->addFileToRead(filename, reader_cxt, nullptr);
             reader.reset();
         }
     }
@@ -1003,9 +998,11 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
         elog(ERROR, "parquet_fdw: %s", e.what());
     }
 
+
+    reader_cxt = AllocSetContextCreate(CurrentMemoryContext, "parquet_fdw tuple data",
+                                       ALLOCSET_DEFAULT_SIZES);
     PG_TRY();
     {
-        uint64 row   = 0;
         int    ratio = num_rows / targrows;
 
         /* Set ratio to at least 1 to avoid devision by zero issue */
@@ -1017,24 +1014,28 @@ static int parquetAcquireSampleRowsFunc(Relation   relation,
         slot = MakeSingleTupleTableSlot(tupleDesc, &TTSOpsHeapTuple);
 #endif
 
-        while (true)
+        foreach (lc, filenames)
         {
-            CHECK_FOR_INTERRUPTS();
+            char *filename = strVal((Value *)lfirst(lc));
+            auto reader = std::make_unique<ParquetFdwReader>(filename);
+            reader->setMemoryContext(reader_cxt);
+            reader->bufferFullTable();
+
+            while (!reader->finishedReadingTable()) {
+                CHECK_FOR_INTERRUPTS();
+
+                if (cnt >= targrows)
+                    break;
+
+                ExecClearTuple(slot);
+                reader->next(slot, false);
+                ExecStoreVirtualTuple(slot);
+                rows[cnt++] = heap_form_tuple(tupleDesc, slot->tts_values, slot->tts_isnull);
+            }
+            reader.reset();
 
             if (cnt >= targrows)
                 break;
-
-            bool fake = (row % ratio) != 0;
-            ExecClearTuple(slot);
-            if (!festate->next(slot, fake))
-                break;
-
-            if (!fake)
-            {
-                rows[cnt++] = heap_form_tuple(tupleDesc, slot->tts_values, slot->tts_isnull);
-            }
-
-            row++;
         }
 
         *totalrows     = num_rows;

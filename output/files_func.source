@@ -1,0 +1,65 @@
+SET datestyle = 'ISO';
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
+CREATE EXTENSION parquet_fdw;
+DROP ROLE IF EXISTS regress_parquet_fdw;
+CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
+SET ROLE regress_parquet_fdw;
+CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
+CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
+SET ROLE regress_parquet_fdw;
+-- files_func
+CREATE FUNCTION list_parquet_files(args JSONB)
+RETURNS TEXT[] AS
+$$
+    SELECT ARRAY[args->>'dir' || '/example1.parquet', args->>'dir' || '/example2.parquet']::TEXT[];
+$$
+LANGUAGE SQL;
+CREATE FOREIGN TABLE example_func (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (
+    files_func 'list_parquet_files',
+    files_func_arg '{"dir": "@abs_srcdir@/data"}');
+SELECT * FROM example_func;
+ one | two | three 
+-----+-----+-------
+   1 |   1 | foo
+   2 |   2 | bar
+   3 |   3 | baz
+   4 |   4 | uno
+   5 |   5 | dos
+   6 |   6 | tres
+   1 |   2 | eins
+   3 |   4 | zwei
+   5 |   6 | drei
+   7 |   8 | vier
+   9 |   0 | fünf
+(11 rows)
+
+-- invalid files_func options
+CREATE FUNCTION int_array_func(args JSONB)
+RETURNS INT[] AS
+$$ SELECT ARRAY[1,2,3]::INT[]; $$
+LANGUAGE SQL;
+CREATE FUNCTION no_args_func()
+RETURNS TEXT[] AS
+$$ SELECT ARRAY['@abs_srcdir@/data/example1.parquet']::TEXT[]; $$
+LANGUAGE SQL;
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (files_func 'int_array_func');
+ERROR:  return type of 'int_array_func' is integer[]; expected text[]
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (files_func 'no_args_func');
+ERROR:  function no_args_func(jsonb) does not exist
+CREATE FOREIGN TABLE example_inv_func (one INT8, two INT8, three TEXT)
+SERVER parquet_srv
+OPTIONS (files_func 'list_parquet_files', files_func_arg 'invalid json');
+ERROR:  invalid input syntax for type json
+DETAIL:  Token "invalid" is invalid.
+CONTEXT:  JSON data, line 1: invalid...
+DROP FUNCTION list_parquet_files(JSONB);
+DROP FUNCTION int_array_func(JSONB);
+DROP FUNCTION no_args_func();
+DROP EXTENSION parquet_fdw CASCADE;

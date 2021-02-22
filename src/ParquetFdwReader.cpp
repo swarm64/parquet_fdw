@@ -11,6 +11,7 @@ extern "C" {
 
 ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
 : parquetFilePath(parquetFilePath)
+, fileReader(nullptr)
 {
     props.set_use_threads(false);
 
@@ -80,8 +81,10 @@ void ParquetFdwReader::bufferRowGroup(
 {
     arrow::Status status;
 
-    const auto reader = getFileReader();
-    auto rowgroup_meta = reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
+    if (!this->fileReader)
+        this->fileReader = getFileReader();
+
+    auto rowgroup_meta = fileReader->parquet_reader()->metadata()->RowGroup(rowGroupId);
 
     columnChunks.clear();
     for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
@@ -89,7 +92,7 @@ void ParquetFdwReader::bufferRowGroup(
         if (attrUseList[numAttr])
         {
             std::shared_ptr<arrow::ChunkedArray> columnChunk;
-            const auto columnReader = reader->RowGroup(rowGroupId)->Column(numAttr);
+            const auto columnReader = fileReader->RowGroup(rowGroupId)->Column(numAttr);
             const auto status       = columnReader->Read(&columnChunk);
             if (!status.ok())
                 throw Error("Could not read column %d in row group %d: %s", numAttr, rowGroupId,

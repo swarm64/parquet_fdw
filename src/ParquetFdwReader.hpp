@@ -78,6 +78,7 @@ private:
     const std::string parquetFilePath;
 
     std::unique_ptr<parquet::arrow::FileReader> getFileReader() const;
+    std::unique_ptr<parquet::arrow::FileReader> fileReader;
 
 public:
 
@@ -158,4 +159,9 @@ public:
     void setMemoryContext(MemoryContext cxt);
     void validateSchema(TupleDesc tupleDesc) const;
     void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const;
+
+    void finishReadingFile() {
+        if (fileReader)
+            fileReader.reset();
+    }
 };

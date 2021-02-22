@@ -48,11 +48,9 @@ void ParquetFdwReader::setMemoryContext(MemoryContext cxt) {
 }
 
 void ParquetFdwReader::bufferFullTable() {
-    openFileForReading();
-
     std::shared_ptr<arrow::Table> fullTable = nullptr;
 
-    const auto result = fileReader->ReadTable(&fullTable);
+    const auto result = getFileReader()->ReadTable(&fullTable);
     if (!result.ok())
         throw Error("Failed to read parquet file: %s", result.message().c_str());
 
@@ -75,8 +73,6 @@ void ParquetFdwReader::bufferFullTable() {
 
     this->row = 0;
     this->num_rows = metadata->num_rows();
-
-    finishReadingFile();
 }
 
 void ParquetFdwReader::bufferRowGroup(

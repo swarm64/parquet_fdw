@@ -11,6 +11,7 @@ extern "C" {
 
 ParquetFdwReader::ParquetFdwReader(const char* parquetFilePath)
 : parquetFilePath(parquetFilePath)
+, fileReader(nullptr)
 {
     props.set_use_threads(false);
 
@@ -47,13 +48,43 @@ void ParquetFdwReader::setMemoryContext(MemoryContext cxt) {
     allocator = std::make_unique<FastAllocator>(FastAllocator(cxt));
 }
 
+void ParquetFdwReader::bufferFullTable() {
+    std::shared_ptr<arrow::Table> fullTable = nullptr;
+
+    const auto result = getFileReader()->ReadTable(&fullTable);
+    if (!result.ok())
+        throw Error("Failed to read parquet file: %s", result.message().c_str());
+
+
+    const auto combineResult = fullTable->CombineChunks();
+    if (!combineResult.ok())
+        throw Error("Failed to combine chunks in table: %s", result.message().c_str());
+
+    fullTable = combineResult.ValueOrDie();
+
+    columnChunks.clear();
+    for (int numColumn = 0; numColumn < fullTable->num_columns(); ++numColumn)
+    {
+        const auto columnChunk = fullTable->column(numColumn);
+        if (columnChunk->num_chunks() > 1)
+            throw Error("Found more than one chunk in reduced table.");
+
+        columnChunks.emplace_back(ChunkInfo(columnChunk->chunk(0)));
+    }
+
+    this->row = 0;
+    this->num_rows = metadata->num_rows();
+}
+
 void ParquetFdwReader::bufferRowGroup(
     const int32_t rowGroupId, TupleDesc tupleDesc, const std::vector<bool>& attrUseList)
 {
     arrow::Status status;
 
-    const auto reader = getFileReader();
-    auto rowgroup_meta = reader->parquet_reader()->metadata()->RowGroup(rowGroupId);
+    if (!this->fileReader)
+        this->fileReader = getFileReader();
+
+    auto rowgroup_meta = fileReader->parquet_reader()->metadata()->RowGroup(rowGroupId);
 
     columnChunks.clear();
     for (int numAttr = 0; numAttr < tupleDesc->natts; ++numAttr)
@@ -61,7 +92,7 @@ void ParquetFdwReader::bufferRowGroup(
         if (attrUseList[numAttr])
         {
             std::shared_ptr<arrow::ChunkedArray> columnChunk;
-            const auto columnReader = reader->RowGroup(rowGroupId)->Column(numAttr);
+            const auto columnReader = fileReader->RowGroup(rowGroupId)->Column(numAttr);
             const auto status       = columnReader->Read(&columnChunk);
             if (!status.ok())
                 throw Error("Could not read column %d in row group %d: %s", numAttr, rowGroupId,

@@ -15,13 +15,15 @@ WARNING:  Skipping file @abs_srcdir@/data/README.md. Not a parquet file.
 WARNING:  Skipping file @abs_srcdir@/data/generate.py. Not a parquet file.
 WARNING:  Skipping file @abs_srcdir@/data/somedata.csv. Not a parquet file.
 \d
-                    List of relations
- Schema |   Name   |     Type      |        Owner        
---------+----------+---------------+---------------------
- public | example1 | foreign table | regress_parquet_fdw
- public | example2 | foreign table | regress_parquet_fdw
- public | example3 | foreign table | regress_parquet_fdw
-(3 rows)
+                       List of relations
+ Schema |      Name       |     Type      |        Owner        
+--------+-----------------+---------------+---------------------
+ public | example1        | foreign table | regress_parquet_fdw
+ public | example2        | foreign table | regress_parquet_fdw
+ public | example3        | foreign table | regress_parquet_fdw
+ public | example_nested1 | foreign table | regress_parquet_fdw
+ public | example_nested2 | foreign table | regress_parquet_fdw
+(5 rows)
 
 SELECT * FROM example2;
  one | two | three |        four         |    five    | six | seven 

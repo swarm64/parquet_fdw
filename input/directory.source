@@ -1,0 +1,26 @@
+SET log_min_duration_statement = -1;
+SET datestyle = 'ISO';
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
+CREATE EXTENSION parquet_fdw;
+DROP ROLE IF EXISTS regress_parquet_fdw;
+CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
+CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
+CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
+SET ROLE regress_parquet_fdw;
+
+CREATE FOREIGN TABLE example_dir (
+    one     INT8,
+    two     INT8,
+    three   TEXT,
+    four    TIMESTAMP,
+    five    DATE,
+    six     BOOL,
+    seven   FLOAT8)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/dir');
+\d
+SET client_min_messages = DEBUG1;
+SELECT * FROM example_dir ORDER BY one, two;
+
+DROP EXTENSION parquet_fdw CASCADE;

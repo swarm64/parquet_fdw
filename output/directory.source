@@ -1,0 +1,54 @@
+SET log_min_duration_statement = -1;
+SET datestyle = 'ISO';
+SET client_min_messages = WARNING;
+SET log_statement TO 'none';
+CREATE EXTENSION parquet_fdw;
+DROP ROLE IF EXISTS regress_parquet_fdw;
+ERROR:  role "regress_parquet_fdw" cannot be dropped because some objects depend on it
+DETAIL:  owner of function list_parquet_files(jsonb)
+CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
+ERROR:  role "regress_parquet_fdw" already exists
+CREATE SERVER parquet_srv FOREIGN DATA WRAPPER parquet_fdw;
+CREATE USER MAPPING FOR regress_parquet_fdw SERVER parquet_srv;
+SET ROLE regress_parquet_fdw;
+CREATE FOREIGN TABLE example_dir (
+    one     INT8,
+    two     INT8,
+    three   TEXT,
+    four    TIMESTAMP,
+    five    DATE,
+    six     BOOL,
+    seven   FLOAT8)
+SERVER parquet_srv
+OPTIONS (filename '@abs_srcdir@/data/dir');
+\d
+                     List of relations
+ Schema |    Name     |     Type      |        Owner        
+--------+-------------+---------------+---------------------
+ public | example_dir | foreign table | regress_parquet_fdw
+(1 row)
+
+SET client_min_messages = DEBUG1;
+SELECT * FROM example_dir ORDER BY one, two;
+DEBUG:  Appending file @abs_srcdir@/data/dir/l1_a/nested/example_nested2.parquet
+DEBUG:  Appending file @abs_srcdir@/data/dir/l1/example_nested1.parquet
+ one | two | three |        four         |    five    | six | seven 
+-----+-----+-------+---------------------+------------+-----+-------
+   1 |   1 | foo   | 2018-01-01 00:00:00 | 2018-01-01 | t   |   0.5
+   1 |   2 | eins  | 2018-01-01 00:00:00 | 2018-01-01 | t   |      
+   2 |   2 | bar   | 2018-01-02 00:00:00 | 2018-01-02 | f   |      
+   3 |   3 | baz   | 2018-01-03 00:00:00 | 2018-01-03 | t   |     1
+   3 |   4 | zwei  | 2018-01-03 00:00:00 | 2018-01-03 | f   |      
+   4 |   4 | uno   | 2018-01-04 00:00:00 | 2018-01-04 | f   |   0.5
+   5 |   5 | dos   | 2018-01-05 00:00:00 | 2018-01-05 | f   |      
+   5 |   6 | drei  | 2018-01-05 00:00:00 | 2018-01-05 | t   |      
+   6 |   6 | tres  | 2018-01-06 00:00:00 | 2018-01-06 | f   |     1
+   7 |   8 | vier  | 2018-01-07 00:00:00 | 2018-01-07 | f   |      
+   9 |   0 | fünf  | 2018-01-09 00:00:00 | 2018-01-09 | t   |      
+(11 rows)
+
+DROP EXTENSION parquet_fdw CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to server parquet_srv
+drop cascades to user mapping for regress_parquet_fdw on server parquet_srv
+drop cascades to foreign table example_dir

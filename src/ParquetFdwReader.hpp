@@ -78,6 +78,7 @@ private:
     const std::string parquetFilePath;
 
     std::unique_ptr<parquet::arrow::FileReader> getFileReader() const;
+    std::unique_ptr<parquet::arrow::FileReader> fileReader;
 
 public:
 
@@ -91,6 +92,7 @@ public:
 
     void bufferRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
         const std::vector<bool>& attrUseList);
+    void bufferFullTable();
 
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);
@@ -136,6 +138,10 @@ public:
         return row >= num_rows;
     }
 
+    bool finishedReadingTable() const {
+        return finishedReadingRowGroup();
+    }
+
     size_t getNumRowGroups() const {
         return numRowGroups;
     }
@@ -153,4 +159,9 @@ public:
     void setMemoryContext(MemoryContext cxt);
     void validateSchema(TupleDesc tupleDesc) const;
     void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const;
+
+    void finishReadingFile() {
+        if (fileReader)
+            fileReader.reset();
+    }
 };

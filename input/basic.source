@@ -1,3 +1,4 @@
+SET log_min_duration_statement = -1;
 SET datestyle = 'ISO';
 SET client_min_messages = WARNING;
 SET log_statement TO 'none';

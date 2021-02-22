@@ -46,8 +46,12 @@ bool ParquetFdwExecutionState::next(TupleTableSlot *slot, bool fake)
             throw std::runtime_error(ss.str());
         }
 
+        const auto previousReader = currentReader;
         currentReader = readers[readerId];
         currentReader->bufferRowGroup(rowGroupId, tupleDesc, attrUseList);
+
+        if (previousReader && (currentReader.get() != previousReader.get()))
+            previousReader->finishReadingFile();
     }
 
     const bool res = currentReader->next(slot, fake);

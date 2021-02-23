@@ -24,7 +24,8 @@ make PG_CONFIG=<path-to-pg_config>
 make PG_CONFIG=<path-to-pg_config> install
 ```
 
-You can do a `make installcheck` to run verification tests.
+You can do a `make PG_CONFIG=<path-to-pg_config> PGUSER=<username> installcheck`
+to run verification tests.
 
 
 ## Usage

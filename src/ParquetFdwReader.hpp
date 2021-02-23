@@ -92,7 +92,6 @@ public:
 
     void bufferRowGroup(const int32_t rowGroupId, TupleDesc tupleDesc,
         const std::vector<bool>& attrUseList);
-    void bufferFullTable();
 
     bool  next(TupleTableSlot *slot, bool fake = false);
     void  populate_slot(TupleTableSlot *slot, bool fake = false);

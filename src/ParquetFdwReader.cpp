@@ -48,34 +48,6 @@ void ParquetFdwReader::setMemoryContext(MemoryContext cxt) {
     allocator = std::make_unique<FastAllocator>(FastAllocator(cxt));
 }
 
-void ParquetFdwReader::bufferFullTable() {
-    std::shared_ptr<arrow::Table> fullTable = nullptr;
-
-    const auto result = getFileReader()->ReadTable(&fullTable);
-    if (!result.ok())
-        throw Error("Failed to read parquet file: %s", result.message().c_str());
-
-
-    const auto combineResult = fullTable->CombineChunks();
-    if (!combineResult.ok())
-        throw Error("Failed to combine chunks in table: %s", result.message().c_str());
-
-    fullTable = combineResult.ValueOrDie();
-
-    columnChunks.clear();
-    for (int numColumn = 0; numColumn < fullTable->num_columns(); ++numColumn)
-    {
-        const auto columnChunk = fullTable->column(numColumn);
-        if (columnChunk->num_chunks() > 1)
-            throw Error("Found more than one chunk in reduced table.");
-
-        columnChunks.emplace_back(ChunkInfo(columnChunk->chunk(0)));
-    }
-
-    this->row = 0;
-    this->num_rows = metadata->num_rows();
-}
-
 void ParquetFdwReader::bufferRowGroup(
     const int32_t rowGroupId, TupleDesc tupleDesc, const std::vector<bool>& attrUseList)
 {

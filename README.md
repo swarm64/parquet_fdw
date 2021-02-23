@@ -1,35 +1,89 @@
-![CI](https://github.com/adjust/parquet_fdw/workflows/CI/badge.svg) ![experimental](https://img.shields.io/badge/status-experimental-orange)
 
 # parquet_fdw
 
 Parquet foreign data wrapper for PostgreSQL.
 
+This is a fork, original at the [Adjust GitHub page](https://github.com/adjust/parquet_fdw).
+
 ## Installation
 
-`parquet_fdw` requires `libarrow` and `libparquet` installed in your system (requires version 0.15+, for previous versions use branch [arrow-0.14](https://github.com/adjust/parquet_fdw/tree/arrow-0.14)). Please refer to [libarrow installation page](https://arrow.apache.org/install/) or [building guide](https://github.com/apache/arrow/blob/master/cpp/README.md).
-To build `parquet_fdw` run:
-```sh
-make install
-```
-or in case when PostgreSQL is installed in a custom location:
-```sh
-make install PG_CONFIG=/path/to/pg_config
-```
-It is possible to pass additional compilation flags through either custom
-`CCFLAGS` or standard `PG_CFLAGS`, `PG_CXXFLAGS`, `PG_CPPFLAGS` variables.
+### Prerequisites
 
-After extension was successfully installed run in `psql`:
+- PostgreSQL 11 or 12 + server development packages
+
+- `libarrow` and `libparquet` 2.0.0 installed on your system.
+  Compatibility with version 3.0.0 is not yet tested but might work.
+
+- A compiler supporting C++17. If you are on a system where LLVM does not
+  support C++17 (e.g. CentOS 7), run `make` with `with_llvm=0`.
+
+### Building
+
+```
+make PG_CONFIG=<path-to-pg_config>
+make PG_CONFIG=<path-to-pg_config> install
+```
+
+You can do a `make installcheck` to run verification tests.
+
+
+## Usage
+
+To start using `parquet_fdw` you need to create the extension followed by
+creating the server and user mapping. For example:
+
 ```sql
 create extension parquet_fdw;
-```
-
-## Using
-To start using `parquet_fdw` you should first create server and user mapping. For example:
-```sql
 create server parquet_srv foreign data wrapper parquet_fdw;
 create user mapping for postgres server parquet_srv options (user 'postgres');
 ```
-Now you should be able to create foreign table from Parquet files. Currently `parquet_fdw` supports the following column [types](https://github.com/apache/arrow/blob/master/cpp/src/arrow/type.h) (to be extended shortly):
+
+
+### Creating foreign tables
+
+Next you can create foreign tables pointing to parquet files. For instance:
+
+```sql
+CREATE FOREIGN TABLE foo(
+    key BIGINT
+  , value TEXT
+) SERVER parquet_srv OPTIONS (
+  filename '<path-to-parquet-file>'
+);
+```
+
+The schema of the parquet file must match the table definition. Below is a list
+of equivalent data types.
+
+
+### Options
+
+The following options are currently available:
+
+- **filename**: the files to process, can be:
+  - A single file, or
+  - A space-separated list of files, or
+  - A directory with parquet files. If a directory is provided, it is going to
+    be processed recursively. Further, it is assumed that all files in there
+    do have the same schema.
+
+
+## Parallel querying
+
+`parquet_fdw` also supports [parallel query execution](https://www.postgresql.org/docs/current/parallel-query.html).
+To make use of parallel queries, you need to run `ANALYZE` on the foreign
+table(s) to build statistics.
+
+
+## Filter pushdown
+
+On querying, `parquet_fdw` uses parquet statistics to calculate which row
+groups need to be scanned thus effectively reducing the amount of data to read.
+
+
+## Data types
+
+Currently `parquet_fdw` supports the following column types:
 
 | Parquet type |  SQL type |
 |--------------|-----------|
@@ -41,36 +95,17 @@ Now you should be able to create foreign table from Parquet files. Currently `pa
 |       DATE32 |      DATE |
 |       STRING |      TEXT |
 |       BINARY |     BYTEA |
-|         LIST |     ARRAY |
 
-Currently `parquet_fdw` doesn't support structs and nested lists.
+`parquet_fdw` does not support array, structs and similar objects.
 
-Following options are supported:
-* **filename** - space separated list of paths to Parquet files to read;
-* **use_mmap** - whether memory map operations will be used instead of file read operations (default `false`);
 
-GUC variables:
-* None
-
-Example:
-```sql
-create foreign table userdata (
-    id           int,
-    first_name   text,
-    last_name    text
-)
-server parquet_srv
-options (
-    filename '/mnt/userdata1.parquet'
-);
-```
-
-### Parallel queries
-`parquet_fdw` also supports [parallel query execution](https://www.postgresql.org/docs/current/parallel-query.html) (not to confuse with multi-threaded decoding feature of `arrow`). It is disabled by default; to enable it run `ANALYZE` command on the table. The reason behind this is that without statistics postgres may end up choosing a terrible parallel plan for certain queries which would be much worse than a serial one (e.g. grouping by a column with large number of distinct values).
+## Other features
 
 ### Import
 
-`parquet_fdw` also supports [`IMPORT FOREIGN SCHEMA`](https://www.postgresql.org/docs/current/sql-importforeignschema.html) command to discover parquet files in the specified directory on filesystem and create foreign tables according to those files. It can be used as follows:
+`parquet_fdw` also supports [`IMPORT FOREIGN SCHEMA`](https://www.postgresql.org/docs/current/sql-importforeignschema.html)
+to discover parquet files in the specified directory on filesystem and create
+foreign tables accordingly. For example:
 
 ```sql
 import foreign schema "/path/to/directory"
@@ -78,9 +113,11 @@ from server parquet_srv
 into public;
 ```
 
-It is important that `remote_schema` here is a path to a local filesystem directory and is double quoted.
+It is important that `remote_schema` here is a path to a local filesystem
+directory and is double quoted.
 
-Another way to import parquet files into foreign tables is to use `import_parquet` or `import_parquet_explicit`:
+Another way to import parquet files into foreign tables is to use
+`import_parquet` or `import_parquet_explicit`:
 
 ```sql
 create function import_parquet(

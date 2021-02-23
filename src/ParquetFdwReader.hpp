@@ -160,6 +160,7 @@ public:
     void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const;
 
     void finishReadingFile() {
+        columnChunks.clear();
         if (fileReader)
             fileReader.reset();
     }

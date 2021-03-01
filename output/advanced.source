@@ -1,6 +1,7 @@
 SET datestyle = 'ISO';
 SET client_min_messages = WARNING;
 SET log_statement TO 'none';
+SET max_parallel_workers_per_gather = 0;
 CREATE EXTENSION parquet_fdw;
 DROP ROLE IF EXISTS regress_parquet_fdw;
 CREATE ROLE regress_parquet_fdw LOGIN SUPERUSER;
@@ -131,7 +132,6 @@ SELECT three, four, six, rank() OVER (PARTITION BY six ORDER BY four DESC) FROM 
 (6 rows)
 
 -- Rescan
-SET max_parallel_workers_per_gather = 0;
 SET enable_hashjoin = off;
 SET enable_mergejoin = off;
 SET enable_material = off;

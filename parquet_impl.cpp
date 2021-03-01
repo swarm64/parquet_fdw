@@ -505,6 +505,25 @@ extern "C" void parquetGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel,
     get_table_options(foreigntableid, fdw_private);
 
     baserel->fdw_private = fdw_private;
+
+    if (baserel->pages == 0 && baserel->tuples == 0)
+    {
+        // No statistics, provide estimate based on file metadata
+        size_t totalSizeBytes = 0;
+        int64_t numRows = 0;
+        ListCell *lc;
+        foreach (lc, fdw_private->filenames)
+        {
+            char *filename = strVal((Value *)lfirst(lc));
+            auto reader = std::make_unique<ParquetFdwReader>(filename);
+            numRows += reader->getNumTotalRows();
+            totalSizeBytes += reader->getTotalByteSize();
+            reader.reset();
+        }
+
+        baserel->pages = totalSizeBytes / BLCKSZ;
+        baserel->tuples = numRows;
+    }
 }
 
 static void estimate_costs(PlannerInfo *root,
@@ -1052,6 +1071,32 @@ extern "C" bool parquetAnalyzeForeignTable(Relation               relation,
                                            AcquireSampleRowsFunc *func,
                                            BlockNumber *          totalpages)
 {
+    ParquetFdwPlanState newPlanState;
+    get_table_options(RelationGetRelid(relation), &newPlanState);
+    ParquetFdwPlanState *fdw_private = &newPlanState;
+
+    const List* filenames = fdw_private->filenames;
+    if (!filenames)
+        elog(ERROR, "List of filenames is empty");
+
+    ListCell *lc;
+    size_t totalByteSize = 0;
+    try
+    {
+        foreach (lc, filenames)
+        {
+            char *filename = strVal((Value *)lfirst(lc));
+            auto reader = std::make_unique<ParquetFdwReader>(filename);
+            totalByteSize += reader->getTotalByteSize();
+            reader.reset();
+        }
+    }
+    catch (const std::exception &e)
+    {
+        elog(ERROR, "parquet_fdw: %s", e.what());
+    }
+
+    *totalpages = totalByteSize / BLCKSZ;
     *func = parquetAcquireSampleRowsFunc;
     return true;
 }
@@ -1122,11 +1167,9 @@ extern "C" void parquetExplainForeignScan(ForeignScanState *node, ExplainState *
 
 /* Parallel query execution */
 
-extern "C" bool
-        parquetIsForeignScanParallelSafe(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+extern "C" bool parquetIsForeignScanParallelSafe(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
-    /* Use parallel execution only when statistics are collected */
-    return (rel->tuples > 0);
+    return true;
 }
 
 extern "C" Size parquetEstimateDSMForeignScan(ForeignScanState *node, ParallelContext *pcxt)

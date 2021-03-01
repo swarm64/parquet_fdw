@@ -155,6 +155,18 @@ public:
         return metadata->num_rows();
     }
 
+    size_t getTotalByteSize() const {
+        if (!metadata)
+            throw Error("Metadata not set.");
+
+        size_t totalSize = 0;
+        for (int n = 0; n < metadata->num_row_groups(); ++n)
+        {
+            totalSize += metadata->RowGroup(n)->total_byte_size();
+        }
+        return totalSize;
+    }
+
     void setMemoryContext(MemoryContext cxt);
     void validateSchema(TupleDesc tupleDesc) const;
     void schemaMustBeEqual(const std::shared_ptr<arrow::Schema> otherSchema) const;

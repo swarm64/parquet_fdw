@@ -117,8 +117,11 @@ public:
     }
 
     void extract_rowgroup_filters(List *scan_clauses);
-    List* getRowGroupSkipListAndUpdateTupleCount(const ParquetFdwReader& reader,
-                                 TupleDesc                  tupleDesc,
-                                 uint64_t *ntuples
-                                 ) noexcept;
+    List* getRowGroupSkipListAndUpdateTupleCount(
+        const ParquetFdwReader& reader,
+        TupleDesc tupleDesc,
+        const std::vector<bool>& attrUseList,
+        uint64_t *numTotalRows,
+        uint64_t *numRowsToRead,
+        size_t *numPagesToRead) noexcept;
 };

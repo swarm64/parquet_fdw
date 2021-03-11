@@ -101,7 +101,9 @@ struct ParquetFdwPlanState
     List *     attrs_sorted;
     Bitmapset *attrs_used; // attributes actually used in query
     bool       use_mmap;
-    uint64     ntuples;
+    uint64_t numTotalRows;
+    uint64_t numRowsToRead;
+    size_t numPagesToRead;
     List * rowGroupsToSkip;
 };
 
@@ -497,71 +499,6 @@ static void get_table_options(Oid relid, ParquetFdwPlanState *fdw_private)
         fdw_private->filenames = get_filenames_from_userfunc(funcname, funcarg);
 }
 
-extern "C" void parquetGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
-{
-    ParquetFdwPlanState *fdw_private;
-
-    fdw_private = (ParquetFdwPlanState *)palloc0(sizeof(ParquetFdwPlanState));
-    get_table_options(foreigntableid, fdw_private);
-
-    baserel->fdw_private = fdw_private;
-
-    if (baserel->pages == 0 && baserel->tuples == 0)
-    {
-        // No statistics, provide estimate based on file metadata
-        size_t totalSizeBytes = 0;
-        int64_t numRows = 0;
-        ListCell *lc;
-        foreach (lc, fdw_private->filenames)
-        {
-            char *filename = strVal((Value *)lfirst(lc));
-            auto reader = std::make_unique<ParquetFdwReader>(filename);
-            numRows += reader->getNumTotalRows();
-            totalSizeBytes += reader->getTotalByteSize();
-            reader.reset();
-        }
-
-        baserel->pages = totalSizeBytes / BLCKSZ;
-        baserel->tuples = numRows;
-    }
-}
-
-static void estimate_costs(PlannerInfo *root,
-                           RelOptInfo * baserel,
-                           Cost *       startup_cost,
-                           Cost *       run_cost,
-                           Cost *       total_cost)
-{
-    auto   fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
-    double ntuples;
-
-    /* Use statistics if we have it */
-    if (baserel->tuples)
-    {
-        ntuples = baserel->tuples
-                * clauselist_selectivity(root, baserel->baserestrictinfo, 0, JOIN_INNER, nullptr);
-    }
-    else
-    {
-        /*
-         * If there is no statistics then use estimate based on rows number
-         * in the selected row groups.
-         */
-        ntuples = fdw_private->ntuples;
-    }
-
-    /*
-     * Here we assume that parquet tuple cost is the same as regular tuple cost
-     * even though this is probably not true in many cases. Maybe we'll come up
-     * with a smarter idea later.
-     */
-    *run_cost     = ntuples * cpu_tuple_cost;
-    *startup_cost = baserel->baserestrictcost.startup;
-    *total_cost   = *startup_cost + *run_cost;
-
-    baserel->rows = ntuples;
-}
-
 static void extract_used_attributes(RelOptInfo *baserel)
 {
     ParquetFdwPlanState *fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
@@ -583,32 +520,44 @@ static void extract_used_attributes(RelOptInfo *baserel)
     }
 }
 
-extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
+extern "C" void parquetGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
 {
-    ParquetFdwPlanState *fdw_private;
-    Path *               foreign_path;
-    Cost                 startup_cost;
-    Cost                 total_cost;
-    Cost                 run_cost;
-    List *                    pathkeys = NIL;
-    RangeTblEntry *           rte;
-    Relation                  rel;
-    TupleDesc                 tupleDesc;
-    ListCell *                lc, *lc2;
-
-    fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
+    ParquetFdwPlanState *fdw_private = (ParquetFdwPlanState *)palloc0(sizeof(ParquetFdwPlanState));
     fdw_private->rowGroupsToSkip = NIL;
 
-    rte = root->simple_rte_array[baserel->relid];
+    get_table_options(foreigntableid, fdw_private);
+    baserel->fdw_private = fdw_private;
+
+    /* Collect used attributes to reduce number of read columns during scan */
+    extract_used_attributes(baserel);
+
+    RangeTblEntry *rte = root->simple_rte_array[baserel->relid];
 #if PG_VERSION_NUM < 120000
-    rel = heap_open(rte->relid, AccessShareLock);
+    Relation rel = heap_open(rte->relid, AccessShareLock);
 #else
-    rel = table_open(rte->relid, AccessShareLock);
+    Relation rel = table_open(rte->relid, AccessShareLock);
 #endif
-    tupleDesc = RelationGetDescr(rel);
+
+    TupleDesc tupleDesc = RelationGetDescr(rel);
+
+#if PG_VERSION_NUM < 120000
+    heap_close(rel, AccessShareLock);
+#else
+    table_close(rel, AccessShareLock);
+#endif
 
     try
     {
+        ListCell *lc, *lc2;
+
+        auto attrUseList = std::vector<bool>(tupleDesc->natts, false);
+        int attIdx = -1;
+        while ((attIdx = bms_next_member(fdw_private->attrs_used, attIdx)) >= 0)
+        {
+            const auto attNum   = attIdx - 1 + FirstLowInvalidHeapAttributeNumber;
+            attrUseList[attNum] = true;
+        }
+
         std::shared_ptr<arrow::Schema> previousSchema;
         List* allFiles = list_copy(fdw_private->filenames);
         foreach (lc, allFiles)
@@ -630,7 +579,12 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
              * in those row groups. It isn't very precise but it is best we got.
              */
             List *thisFileSkipList = filterPushdown.getRowGroupSkipListAndUpdateTupleCount(
-                filename, tupleDesc, &(fdw_private->ntuples));
+                filename,
+                tupleDesc,
+                attrUseList,
+                &(fdw_private->numTotalRows),
+                &(fdw_private->numRowsToRead),
+                &(fdw_private->numPagesToRead));
 
             if (thisFileSkipList != NIL && reader->getNumRowGroups() == (size_t)thisFileSkipList->length)
             {
@@ -654,18 +608,45 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         elog(ERROR, "parquet_fdw: error validating schema: %s", e.what());
     }
 
-#if PG_VERSION_NUM < 120000
-    heap_close(rel, AccessShareLock);
-#else
-    table_close(rel, AccessShareLock);
-#endif
+    baserel->rows = fdw_private->numRowsToRead;
+    baserel->tuples = fdw_private->numTotalRows;
+}
 
-    estimate_costs(root, baserel, &startup_cost, &run_cost, &total_cost);
+static Path* constructPath(PlannerInfo *root, RelOptInfo *baserel, const double parallelDivisor)
+{
+    auto fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
 
-    /* Collect used attributes to reduce number of read columns during scan */
-    extract_used_attributes(baserel);
+
+    const Cost startupCost = 0.0;
+    const Cost cpuRunCost = (cpu_tuple_cost * fdw_private->numRowsToRead) / parallelDivisor;
+    const Cost diskRunCost = seq_page_cost * fdw_private->numPagesToRead;
+
+    const Cost parallelCostScaler = parallelDivisor > 1.0 ? 1.0 : 2.0;
+    const Cost totalCost = startupCost + cpuRunCost * parallelCostScaler + diskRunCost;
+
+    return reinterpret_cast<Path*>(
+        create_foreignscan_path(
+            root,
+            baserel,
+            nullptr, // default pathtarget
+            fdw_private->numRowsToRead / parallelDivisor,
+            startupCost,
+            totalCost,
+            nullptr, // no pathkeys
+            nullptr, // no outer rel either
+            nullptr, // no extra plan
+            (List *)fdw_private));
+}
+
+extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
+{
+    ParquetFdwPlanState *fdw_private;
+    List *                    pathkeys = NIL;
+
+    fdw_private = (ParquetFdwPlanState *)baserel->fdw_private;
 
     /* Build pathkeys based on attrs_sorted */
+    ListCell *lc;
     foreach (lc, fdw_private->attrs_sorted)
     {
         Oid   relid  = root->simple_rte_array[baserel->relid]->relid;
@@ -688,37 +669,24 @@ extern "C" void parquetGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, O
         pathkeys     = list_concat(pathkeys, attr_pathkey);
     }
 
-    foreign_path = (Path *)create_foreignscan_path(root, baserel, nullptr, /* default pathtarget */
-                                                   baserel->rows, startup_cost, total_cost,
-                                                   nullptr, /* no pathkeys */
-                                                   nullptr, /* no outer rel either */
-                                                   nullptr, /* no extra plan */
-                                                   (List *)fdw_private);
-    add_path(baserel, (Path *)foreign_path);
+    Path *foreignPath = constructPath(root, baserel, 1.0);
+    add_path(baserel, foreignPath);
 
     if (baserel->consider_parallel > 0)
     {
-        ParquetFdwPlanState *private_parallel;
+        const int numWorkers = parallel_leader_participation
+                             ? max_parallel_workers_per_gather + 1
+                             : max_parallel_workers_per_gather;
 
-        private_parallel = (ParquetFdwPlanState *)palloc(sizeof(ParquetFdwPlanState));
-        memcpy(private_parallel, fdw_private, sizeof(ParquetFdwPlanState));
+        const double parallelDivisor = static_cast<double>(numWorkers);
 
-        Path *parallel_path =
-                (Path *)create_foreignscan_path(root, baserel, nullptr, /* default pathtarget */
-                                                baserel->rows, startup_cost, total_cost, pathkeys,
-                                                nullptr, /* no outer rel either */
-                                                nullptr, /* no extra plan */
-                                                (List *)private_parallel);
+        Path* parallelPath = constructPath(root, baserel, parallelDivisor);
 
-        int num_workers = max_parallel_workers_per_gather;
+        parallelPath->parallel_workers = numWorkers;
+        parallelPath->parallel_aware = true;
+        parallelPath->parallel_safe = true;
 
-        parallel_path->rows             = fdw_private->ntuples / (num_workers + 1);
-        parallel_path->total_cost       = startup_cost + run_cost / num_workers;
-        parallel_path->parallel_workers = num_workers;
-        parallel_path->parallel_aware   = true;
-        parallel_path->parallel_safe    = true;
-
-        add_partial_path(baserel, parallel_path);
+        add_partial_path(baserel, parallelPath);
     }
 }
 

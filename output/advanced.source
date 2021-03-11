@@ -136,14 +136,14 @@ SET enable_hashjoin = off;
 SET enable_mergejoin = off;
 SET enable_material = off;
 explain select * from example1 a, example1 b where a.one = b.one;
-                               QUERY PLAN                                
--------------------------------------------------------------------------
- Nested Loop  (cost=0.00..22510.00 rows=5000 width=138)
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Nested Loop  (cost=0.00..8.29 rows=6 width=138)
    Join Filter: (a.one = b.one)
-   ->  Foreign Scan on example1 a  (cost=0.00..10.00 rows=1000 width=69)
+   ->  Foreign Scan on example1 a  (cost=0.00..1.12 rows=6 width=69)
          Reader: Multifile
          Skipped row groups: none
-   ->  Foreign Scan on example1 b  (cost=0.00..10.00 rows=1000 width=69)
+   ->  Foreign Scan on example1 b  (cost=0.00..1.12 rows=6 width=69)
          Reader: Multifile
          Skipped row groups: none
 (8 rows)

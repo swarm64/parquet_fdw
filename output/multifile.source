@@ -111,8 +111,9 @@ SELECT * FROM example_mismatch_omit_last;
 ERROR:  parquet_fdw: error validating schema: Parquet schemas do not match.
 -- parallel execution
 SET parallel_setup_cost = 0;
-SET parallel_tuple_cost = 0.001;
-SET cpu_operator_cost = 0.000025;
+SET parallel_tuple_cost = 0;
+SET cpu_operator_cost = 0.0025;
+SET cpu_tuple_cost = 0.01;
 SET max_parallel_workers_per_gather = 2;
 ANALYZE example_seq;
 ANALYZE example_sorted;

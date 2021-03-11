@@ -213,10 +213,13 @@ void FilterPushdown::extract_rowgroup_filters(List *scan_clauses)
  *      row groups satisfy clauses. Store resulting row group list to
  *      fdw_private.
  */
-List* FilterPushdown::getRowGroupSkipListAndUpdateTupleCount(const ParquetFdwReader& reader,
-                             TupleDesc                  tupleDesc,
-                             uint64_t *ntuples
-                             ) noexcept
+List* FilterPushdown::getRowGroupSkipListAndUpdateTupleCount(
+    const ParquetFdwReader& reader,
+    TupleDesc tupleDesc,
+    const std::vector<bool>& attrUseList,
+    uint64_t *numTotalRows,
+    uint64_t *numRowsToRead,
+    size_t *numPagesToRead) noexcept
 {
     List* rowGroupSkipList = NIL;
 
@@ -252,9 +255,22 @@ List* FilterPushdown::getRowGroupSkipListAndUpdateTupleCount(const ParquetFdwRea
             }
         }
 
-        if (!skipRowGroup)
-            *ntuples += rowgroup->num_rows();
+        *numTotalRows += rowgroup->num_rows();
+        if (!skipRowGroup) {
+            *numRowsToRead += rowgroup->num_rows();
+
+            for (size_t numAttr = 0; numAttr < attrUseList.size(); ++numAttr) {
+                if (attrUseList[numAttr])
+                {
+                    const auto columnSize = rowgroup->ColumnChunk(numAttr)->total_uncompressed_size();
+                    *numPagesToRead += columnSize / BLCKSZ;
+                }
+            }
+        }
     }
+
+    if (*numPagesToRead == 0)
+        *numPagesToRead = 1;
 
     return rowGroupSkipList;
 }
